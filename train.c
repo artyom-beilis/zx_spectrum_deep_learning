@@ -1,6 +1,7 @@
-#include <stdio.h>
-#include <string.h>
 #ifdef __linux
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include "train_samples.h"
 #include "test_samples.h"
 #else
@@ -9,7 +10,7 @@ const int train_samples_size=64;
 
 #define BATCH_SIZE 10
 #define INPSIZE 8
-#define KERNELS 16
+#define KERNELS 8
 #define KSIZE   3
 #define INTERM_SIZE (INPSIZE - KSIZE + 1)
 #define POOL_SIZE (INTERM_SIZE  >> 1)
@@ -305,7 +306,7 @@ void init_params(Params *p)
     for(i=0;i<CLASS_NO;i++)
         p->ip_offset[i]=0.0f;
 
-    xavier(&p->conv_kernel[0][0][0],KERNELS*KSIZE*KSIZE,KERNELS*KSIZE*KSIZE,1);
+    xavier(&p->conv_kernel[0][0][0],KERNELS*KSIZE*KSIZE,KERNELS*KSIZE*KSIZE,KERNELS*KSIZE*KSIZE);
     for(i=0;i<KERNELS;i++)
         p->conv_offset[i]=0.0f;
 }
@@ -349,40 +350,41 @@ void mark_character(int digit,int batch,int status)
     }
 }
 
-unsigned char sample[8];
+#define BASE_LR 0.01
 
-void train(int epochs)
+unsigned char sample[8];
+float blr = BASE_LR;
+float inv_blr = (1.0/BASE_LR);
+void train(int epoch)
 {
-    init_params(&data.params);
-    float blr = 0.01;
-    float inv_blr = 1.0/blr;
-    for(int epoch = 0;epoch < epochs;epoch++) {
-#ifdef __linux
-        printf("Epoch %d... ",epoch);
-#endif
-        float acc = 0.0;
-        for(int sample_id=0;sample_id < train_samples_size;sample_id++) {
-            float loss = 0.0;
-            for(int i=0;i<10;i++) {
-                get_character(sample,i*rows_for_digit + sample_id / 32,sample_id % 32);
-                mark_character(i,sample_id,ST_TRAIN);
-                float cur_ac = forward_backward(&data,sample,i,&loss);
-                if(cur_ac == 0.0f)
-                    mark_character(i,sample_id,ST_FAIL);
-                else
-                    mark_character(i,sample_id,ST_OK);
-                acc += cur_ac;
-            }
-            if(epoch==2 && sample_id == 0) {
-                blr*=0.1;
-                inv_blr*=10.0;
-            }
-            apply_update(&data.params,&data.params_diffs,blr,inv_blr,0.0005,0.9);
-        }
-#ifdef __linux
-        printf("Accuracy %f%%\n",acc / train_samples_size *10);
-#endif
+    if(epoch == 0) {
+        init_params(&data.params);
     }
+#ifdef __linux
+    printf("Epoch %d... ",epoch);
+#endif
+    float acc = 0.0;
+    for(int sample_id=0;sample_id < train_samples_size;sample_id++) {
+        float loss = 0.0;
+        for(int i=0;i<10;i++) {
+            get_character(sample,i*rows_for_digit + sample_id / 32,sample_id % 32);
+            mark_character(i,sample_id,ST_TRAIN);
+            float cur_ac = forward_backward(&data,sample,i,&loss);
+            if(cur_ac == 0.0f)
+                mark_character(i,sample_id,ST_FAIL);
+            else
+                mark_character(i,sample_id,ST_OK);
+            acc += cur_ac;
+        }
+        if(epoch==2 && sample_id == 0) {
+            blr*=0.1;
+            inv_blr*=10.0;
+        }
+        apply_update(&data.params,&data.params_diffs,blr,inv_blr,0.0005,0.9);
+    }
+#ifdef __linux
+    printf("Accuracy %f%%\n",acc / train_samples_size *10);
+#endif
 }
 void test()
 {
@@ -441,7 +443,8 @@ int main()
 {
     printf("Data Size = %d\n",(int)sizeof(AllData));
     make_screen(train_samples,"screen.scr");
-    train(5);
+    for(int e=0;e<5;e++)
+        train(e);
     make_screen(test_samples,"test_screen.scr");
     test();
     return 0;
@@ -449,9 +452,10 @@ int main()
 #else
 int main()
 {
-    unsigned char *state = (void*)(25599);
-    if(*state == 0) {
-        train(2);
+    unsigned char *statep = (void*)(25599);
+    int epoch = *statep;
+    if(epoch < 255) {
+        train(epoch);
     }
     else {
         test();
