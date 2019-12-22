@@ -85,7 +85,7 @@ print total,total*5*2
 N=train_samples.shape[1]
 solver.net.blobs['label'].data.flat = range(10)
 np.copyto(solver.net.blobs['label_flat'].data,np.eye(10).astype(np.float32))
-for k in range(64*20):
+for k in range(N*10):
     pos = k % N
     np.copyto(solver.net.blobs['data'].data,train_samples[:,pos:pos+1,:,:].astype(np.float32))
     solver.step(1)
