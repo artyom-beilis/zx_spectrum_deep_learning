@@ -4,7 +4,11 @@
 #include <string.h>
 #include "train_samples.h"
 #include "test_samples.h"
+//#include "half.hpp"
 #else
+#ifndef __linux
+#include "fixed12_math.h"
+#endif
 const int train_samples_size=64;
 #endif
 
@@ -17,45 +21,106 @@ const int train_samples_size=64;
 #define FLAT_SIZE (POOL_SIZE*POOL_SIZE*KERNELS)
 #define CLASS_NO 10
 
+//using namespace half_float;
+//typedef half_float::half RealType;
 
-inline float max(float a,float b)
+#define USE_FIXED_HALF
+#ifdef USE_FIXED_HALF
+
+#define FIX_SHIFT 12
+#define FIX_SCALE (1 << FIX_SHIFT)
+#define FIX_MASK  (FIX_SCALE - 1)
+
+#ifdef __linux
+
+short fixed12_mpl_ref(short a,short b)
+{
+    int neg = (a < 0) ^ (b < 0);
+    if(a < 0)
+        a=-a;
+    if(b < 0)
+        b=-b;
+    int res = (int)(a) * b;
+    if(neg)
+        res = -res;
+    res += 2048;
+    return res >> 12;
+}
+
+
+#define real_mpl(a,b) fixed12_mpl_ref(a,b)
+#define real_mpl_nshift(a,b) ((int)(a) * (b))
+#else
+#define real_mpl(a,b) fixed12_mpl((a),(b))
+#define real_mpl_nshift(a,b) mpl_2int_to_long(a,b)
+typedef long int32_t;
+#endif
+
+#define from_float(a) ((short)((a)*FIX_SCALE))
+#define to_float(a) ((float)(a) * ( 1.0f / FIX_SCALE))
+
+typedef short RealType;
+
+#define real_zero 0
+#define real_one FIX_SCALE
+#define real_half(v) ((v)>>1)
+
+#else
+typedef float RealType;
+#define real_zero 0.0f
+#define real_one  1.0f
+#define real_mpl(a,b) ((a)*(b))
+#define from_float(x) (x)
+#define to_float(x) (x)
+
+inline float real_half(float v)
+{
+    return 0.5f*v;
+}
+#endif
+
+inline RealType max(RealType a,RealType b)
 {
     return a > b ? a : b;
 }
 
-inline float relu(float x)
+inline RealType relu(RealType x)
 {
-    if( x > 0.0f)
+    if( x > real_zero)
         return x;
-    return 0.0f;
+    return real_zero;
 }
 
 typedef struct Params {
-    float conv_kernel[KERNELS][KSIZE][KSIZE];
-    float conv_offset[KERNELS];
-    float ip_mat[CLASS_NO][FLAT_SIZE];
-    float ip_offset[CLASS_NO];
+    RealType conv_kernel[KERNELS][KSIZE][KSIZE];
+    RealType conv_offset[KERNELS];
+    RealType ip_mat[CLASS_NO][FLAT_SIZE];
+    RealType ip_offset[CLASS_NO];
 } Params;
 
 typedef struct Layers {
-    float conv_res[KERNELS][INTERM_SIZE][INTERM_SIZE];
-    float pool_res[FLAT_SIZE];
-    float probs[CLASS_NO];
+    RealType conv_res[KERNELS][INTERM_SIZE][INTERM_SIZE];
+    RealType pool_res[FLAT_SIZE];
+    RealType probs[CLASS_NO];
 } Layers;
 
 typedef struct AllData {
     Params params;
     Params params_diffs;
+    Params params_vel;
     Layers blobs;
     Layers blob_diffs;
 } AllData;
 
+AllData data;
 
-void conv_forward(unsigned char *digit,float kernel[KERNELS][KSIZE][KSIZE],float offset[KERNELS],float top[KERNELS][INTERM_SIZE][INTERM_SIZE])
+
+
+void conv_forward(unsigned char *digit,RealType kernel[KERNELS][KSIZE][KSIZE],RealType offset[KERNELS],RealType top[KERNELS][INTERM_SIZE][INTERM_SIZE])
 {
     int n,i,j,r,c;
     unsigned char row;
-    float sum;
+    RealType sum;
     for(r=0;r<INTERM_SIZE;r++) {
         for(c=0;c<INTERM_SIZE;c++) {
             for(n=0;n<KERNELS;n++) {
@@ -74,13 +139,13 @@ void conv_forward(unsigned char *digit,float kernel[KERNELS][KSIZE][KSIZE],float
     }
 }
 
-void conv_backward(unsigned char *digit,float kernel[KERNELS][KSIZE][KSIZE],  float offset[KERNELS],  float top[KERNELS][INTERM_SIZE][INTERM_SIZE],
-                                        float kernel_d[KERNELS][KSIZE][KSIZE],float offset_d[KERNELS],float top_d[KERNELS][INTERM_SIZE][INTERM_SIZE])
+void conv_backward(unsigned char *digit,RealType kernel[KERNELS][KSIZE][KSIZE],  RealType offset[KERNELS],  RealType top[KERNELS][INTERM_SIZE][INTERM_SIZE],
+                                        RealType kernel_d[KERNELS][KSIZE][KSIZE],RealType offset_d[KERNELS],RealType top_d[KERNELS][INTERM_SIZE][INTERM_SIZE])
 {
     int n,i,j,r,c;
     unsigned char row;
     for(n=0;n<KERNELS;n++) {
-        float sum=0.0f;
+        RealType sum = real_zero;
         for(i=0;i<INTERM_SIZE;i++) {
             for(j=0;j<INTERM_SIZE;j++) {
                 sum+=top_d[n][i][j];
@@ -107,10 +172,10 @@ void conv_backward(unsigned char *digit,float kernel[KERNELS][KSIZE][KSIZE],  fl
 
 static unsigned char pooling_selection_mask[FLAT_SIZE];
 
-void max_pool_2x2_relu_forward(float bottom[KERNELS][INTERM_SIZE][INTERM_SIZE],float top[FLAT_SIZE])
+void max_pool_2x2_relu_forward(RealType bottom[KERNELS][INTERM_SIZE][INTERM_SIZE],RealType top[FLAT_SIZE])
 {
     int n,r,c,r2,c2,pos,index;
-    float m,tmp;
+    RealType m,tmp;
     pos = 0;
     for(n=0;n<KERNELS;n++) {
         for(r=0;r<POOL_SIZE;r++) {
@@ -142,14 +207,14 @@ void max_pool_2x2_relu_forward(float bottom[KERNELS][INTERM_SIZE][INTERM_SIZE],f
 }
 
 
-void max_pool_2x2_relu_backward(float bottom[KERNELS][INTERM_SIZE][INTERM_SIZE],float top[FLAT_SIZE],
-                                float bottom_d[KERNELS][INTERM_SIZE][INTERM_SIZE],float top_d[FLAT_SIZE])
+void max_pool_2x2_relu_backward(RealType bottom[KERNELS][INTERM_SIZE][INTERM_SIZE],RealType top[FLAT_SIZE],
+                                RealType bottom_d[KERNELS][INTERM_SIZE][INTERM_SIZE],RealType top_d[FLAT_SIZE])
 {
     int k,r,c,index,dr,dc;
     int pos=0;
     for(k=0;k<FLAT_SIZE;k++) {
-        if(top[k] <= 0.0f)
-            top_d[k] = 0.0;
+        if(top[k] <= real_zero)
+            top_d[k] = real_zero;
     }
     for(k=0;k<KERNELS;k++) {
         for(r=0;r<POOL_SIZE;r++) {
@@ -157,48 +222,47 @@ void max_pool_2x2_relu_backward(float bottom[KERNELS][INTERM_SIZE][INTERM_SIZE],
                 index = pooling_selection_mask[pos];
                 for(dr=0;dr<2;dr++)
                     for(dc=0;dc<2;dc++)
-                        bottom_d[k][r*2+dr][c*2+dc]=(dr == (index >> 1) && dc == (index & 1)) ? top_d[pos] : 0.0f;
+                        bottom_d[k][r*2+dr][c*2+dc]=(dr == (index >> 1) && dc == (index & 1)) ? top_d[pos] : real_zero;
                 pos++;
             }
         }
     }
 }
 
-void ip_forward(float bottom[FLAT_SIZE],float top[CLASS_NO],float offset[CLASS_NO],float M[CLASS_NO][FLAT_SIZE])
+void ip_forward(RealType bottom[FLAT_SIZE],RealType top[CLASS_NO],RealType offset[CLASS_NO],RealType M[CLASS_NO][FLAT_SIZE])
 {
-    float sum;
+    RealType sum;
     int i,j;
     for(i=0;i<CLASS_NO;i++) {
         sum = offset[i];
         for(j=0;j<FLAT_SIZE;j++) {
-            sum += bottom[j] * M[i][j];
+            sum += real_mpl(bottom[j],M[i][j]);
         }
         top[i]=sum;
     }
 }
 
-void ip_backward(float bottom  [FLAT_SIZE],float   top[CLASS_NO],float   offset[CLASS_NO],float   M[CLASS_NO][FLAT_SIZE],
-                 float bottom_d[FLAT_SIZE],float top_d[CLASS_NO],float offset_d[CLASS_NO],float M_d[CLASS_NO][FLAT_SIZE])
+void ip_backward(RealType bottom  [FLAT_SIZE],RealType   top[CLASS_NO],RealType   offset[CLASS_NO],RealType   M[CLASS_NO][FLAT_SIZE],
+                 RealType bottom_d[FLAT_SIZE],RealType top_d[CLASS_NO],RealType offset_d[CLASS_NO],RealType M_d[CLASS_NO][FLAT_SIZE])
 {
     int i,j,k;
     for(k=0;k<CLASS_NO;k++)
         offset_d[k] += top_d[k];
     for(j=0;j<FLAT_SIZE;j++) 
-        bottom_d[j] = 0.0f;
+        bottom_d[j] = real_zero;
     for(i=0;i<CLASS_NO;i++) {
         for(j=0;j<FLAT_SIZE;j++) {
-            M_d[i][j] += bottom[j] * top_d[i];
-            bottom_d[j] += M[i][j] * top_d[i];
+            M_d[i][j] += real_mpl(bottom[j],top_d[i]);
+            bottom_d[j] += real_mpl(M[i][j],top_d[i]);
         }
     }
 }
 
-int euclidean_loss_forward(float bottom[CLASS_NO],float *loss,int label)
+int euclidean_loss_forward(RealType bottom[CLASS_NO],RealType *loss,int label)
 {
     int i,max_index;
-    float sum=0.0f,target,max_val;
-    float sdiff;
-    const float factor = 0.5;
+    RealType sum = real_zero,target,max_val;
+    RealType sdiff;
 
     max_index = 0;
     max_val = bottom[0];
@@ -209,28 +273,28 @@ int euclidean_loss_forward(float bottom[CLASS_NO],float *loss,int label)
         }
     }
     for(i=0;i<CLASS_NO;i++) {
-        target = label == i ? 1.0f : 0.0f;
+        target = label == i ? real_one : real_zero;
         sdiff = target - bottom[i];
-        sum += sdiff * sdiff;
+        sum += real_mpl(sdiff,sdiff);
     }
-    *loss += factor * sum;
+    *loss += real_half(sum);
     return max_index == label;
 }
 
-void euclidean_loss_backward(float bottom[CLASS_NO],float diff[CLASS_NO],int label)
+void euclidean_loss_backward(RealType bottom[CLASS_NO],RealType diff[CLASS_NO],int label)
 {
     int i;
-    float target;
-    float sdiff;
+    RealType target;
+    RealType sdiff;
 
     for(i=0;i<CLASS_NO;i++) {
-        target = label == i ? 1.0f : 0.0f;
+        target = label == i ? real_one : real_zero;
         sdiff = bottom[i] - target;
         diff[i] = sdiff;
     }
 }
 
-int net_forward(unsigned char *digit,int label,Params *p,Layers *l,float *loss)
+int net_forward(unsigned char *digit,int label,Params *p,Layers *l,RealType *loss)
 {
     conv_forward(digit,p->conv_kernel,p->conv_offset,l->conv_res);
     max_pool_2x2_relu_forward(l->conv_res,l->pool_res);
@@ -248,27 +312,52 @@ void net_backward(unsigned char *digit,int label,Params *p,Params *pd,Layers *l,
                        pd->conv_kernel,pd->conv_offset,ld->conv_res);
 }
 
-float forward_backward(AllData *d,unsigned char *digit,int label,float *loss)
+int forward_backward(AllData *d,unsigned char *digit,int label,RealType *loss)
 {
-    float r;
-    r = net_forward(digit,label,&d->params,&d->blobs,loss);
+    int r = net_forward(digit,label,&d->params,&d->blobs,loss);
     net_backward(digit,label,&d->params,&d->params_diffs,&d->blobs,&d->blob_diffs);
     return r;
 }
 
 
-void apply_update(Params *params,Params *params_diff,float lr,float inv_lr,float wd,float momentum)
+#if 0
+void apply_update_vfloat(float lr,float wd,float momentum)
 {
-    const int size = sizeof(Params) / sizeof(float);
-    float *p=(float*)(params);
-    float *pd=(float*)(params_diff);
+    const int size = sizeof(Params) / sizeof(RealType);
+    RealType *p=(RealType*)(&data.params);
+    RealType *pd=(RealType*)(&data.params_diffs);
+    RealType *v=(RealType*)(&data.params_vel);
     int i;
+    float wd_fact = 1.0 - wd;
     for(i=0;i<size;i++) {
-        float v = pd[i] * lr; 
-        p[i] = p[i] - v - p[i] * wd;
-        pd[i] = v * inv_lr * momentum;
+        float vel = to_float(v[i]) * momentum + lr * to_float(pd[i]);
+        p[i] = from_float(to_float(p[i]) * wd_fact  - vel);
+        v[i]= from_float(vel);
+        pd[i] = real_zero;
     }
 }
+void apply_update_fixed(RealType lr,RealType wd,RealType momentum)
+{
+    apply_update_vfloat(to_float(lr),to_float(wd),to_float(momentum));
+}
+#else
+
+void apply_update_fixed(RealType lr,RealType wd,RealType momentum)
+{
+    const int size = sizeof(Params) / sizeof(RealType);
+    RealType *p=(RealType*)(&data.params);
+    RealType *pd=(RealType*)(&data.params_diffs);
+    RealType *v=(RealType*)(&data.params_vel);
+    int i;
+    RealType wd_fact = real_one - wd;
+    for(i=0;i<size;i++) {
+        int32_t vel = real_mpl_nshift(v[i],momentum) + real_mpl_nshift(lr,pd[i]);
+        p[i] = (real_mpl_nshift(p[i], wd_fact)  - vel + FIX_SCALE / 2) >> FIX_SHIFT;
+        v[i]= (vel + FIX_SCALE / 2) >> FIX_SHIFT;
+        pd[i] = real_zero;
+    }
+}
+#endif
 
 unsigned short randv()
 {
@@ -279,39 +368,61 @@ unsigned short randv()
     return lfsr;
 }
 
+#if 0
 float gauus()
 {
     unsigned res = 0;
     int i;
-    static float const factor = (16.0 / 65536.0);
+    static float const factor = 16.0f / 65536.0;
     for(i=0;i<12;i++)
         res += randv() >> 4;
     return factor * res - 6.0f;
 
 }
 
-void xavier(float *v,int size,int Nin,int Nout)
+void xavier(RealType *v,int size,int Nin,int Nout)
 {
     int i;
     float factor = 2.0 / (Nin + Nout);
     for(i=0;i<size;i++) {
-        v[i] = factor * gauus();
+        v[i] = from_float(factor * gauus());
     }
 }
+#else
+
+RealType gauus(RealType sigma)
+{
+#if FIX_SHIFT != 12
+#error "Does not work with other shift!"
+#endif
+    unsigned res = 0;
+    int i;
+    for(i=0;i<12;i++)
+        res += randv() >> 4;
+    return real_mpl(res - 6 * FIX_SCALE,sigma);
+}
+void xavier(RealType *v,int size,int Nin,int Nout)
+{
+    int i;
+    RealType sigma = FIX_SCALE * 2 / (Nin + Nout);
+    for(i=0;i<size;i++) {
+        v[i] = gauus(sigma);
+    }
+}
+#endif
 
 void init_params(Params *p)
 {
     int i;
     xavier(&p->ip_mat[0][0],CLASS_NO*FLAT_SIZE,FLAT_SIZE,CLASS_NO);
     for(i=0;i<CLASS_NO;i++)
-        p->ip_offset[i]=0.0f;
+        p->ip_offset[i]=real_zero;
 
     xavier(&p->conv_kernel[0][0][0],KERNELS*KSIZE*KSIZE,KERNELS*KSIZE*KSIZE,KERNELS*KSIZE*KSIZE);
     for(i=0;i<KERNELS;i++)
-        p->conv_offset[i]=0.0f;
+        p->conv_offset[i]=real_zero;
 }
 
-AllData data;
 
 #ifdef __linux
 unsigned char screen[6144 + 32*24];
@@ -350,11 +461,9 @@ void mark_character(int digit,int batch,int status)
     }
 }
 
-#define BASE_LR 0.01
-
+#define BASE_LR 0.01f
 unsigned char sample[8];
-float blr = BASE_LR;
-float inv_blr = (1.0/BASE_LR);
+RealType blr = FIX_SCALE / 100; // 0.01f
 void train(int epoch)
 {
     if(epoch == 0) {
@@ -363,41 +472,41 @@ void train(int epoch)
 #ifdef __linux
     printf("Epoch %d... ",epoch);
 #endif
-    float acc = 0.0;
+    int acc = 0;
     for(int sample_id=0;sample_id < train_samples_size;sample_id++) {
-        float loss = 0.0;
+        RealType loss=real_zero;
         for(int i=0;i<10;i++) {
             get_character(sample,i*rows_for_digit + sample_id / 32,sample_id % 32);
             mark_character(i,sample_id,ST_TRAIN);
-            float cur_ac = forward_backward(&data,sample,i,&loss);
-            if(cur_ac == 0.0f)
+            int cur_ac = forward_backward(&data,sample,i,&loss);
+            if(cur_ac == 0)
                 mark_character(i,sample_id,ST_FAIL);
             else
                 mark_character(i,sample_id,ST_OK);
             acc += cur_ac;
         }
         if(epoch==2 && sample_id == 0) {
-            blr*=0.1;
-            inv_blr*=10.0;
+            blr /= 10;
         }
-        apply_update(&data.params,&data.params_diffs,blr,inv_blr,0.0005,0.9);
+        // momentum = 0.9, wd = 0.0005
+        apply_update_fixed(blr,(int)(FIX_SCALE * 5l / 10000),(int)(FIX_SCALE * 9l / 10));
     }
 #ifdef __linux
-    printf("Accuracy %f%%\n",acc / train_samples_size *10);
+    printf("Accuracy %f%%\n",(float)(acc) / train_samples_size *10);
 #endif
 }
 void test()
 {
     int N=0;
-    float acc = 0.0;
+    int acc=0;
     for(int b=0;b<train_samples_size;b++) {
-        float loss = 0.0;
+        RealType loss=real_zero;
         for(int i=0;i<10;i++) {
             int sample_id = b;
             get_character(sample,i*rows_for_digit + sample_id / 32,sample_id % 32);
             mark_character(i,sample_id,ST_TRAIN);
-            float cur_ac = net_forward(sample,i,&data.params,&data.blobs,&loss);
-            if(cur_ac == 0.0f)
+            int cur_ac = net_forward(sample,i,&data.params,&data.blobs,&loss);
+            if(cur_ac == 0)
                 mark_character(i,sample_id,ST_FAIL);
             else
                 mark_character(i,sample_id,ST_OK);
@@ -406,7 +515,7 @@ void test()
         }
     }
 #ifdef __linux
-    printf("Test Accuracy %f%%\n",acc/N*100);
+    printf("Test Accuracy %f%%\n",(float)(acc)/N*100);
 #endif
 }
 
@@ -441,9 +550,9 @@ void make_screen(unsigned char samples[10][sizeof(train_samples) / 10 / 8][8],ch
 #ifdef __linux
 int main()
 {
-    printf("Data Size = %d\n",(int)sizeof(AllData));
+    printf("Data Size = %d float_size=%d\n",(int)sizeof(AllData),(int)sizeof(RealType));
     make_screen(train_samples,"screen.scr");
-    for(int e=0;e<5;e++)
+    for(int e=0;e<10;e++)
         train(e);
     make_screen(test_samples,"test_screen.scr");
     test();
