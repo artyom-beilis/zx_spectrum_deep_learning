@@ -461,17 +461,13 @@ void mark_character(int digit,int batch,int status)
     }
 }
 
-#define BASE_LR 0.01f
 unsigned char sample[8];
 RealType blr = FIX_SCALE / 100; // 0.01f
-void train(int epoch)
+RealType train(int epoch)
 {
     if(epoch == 0) {
         init_params(&data.params);
     }
-#ifdef __linux
-    printf("Epoch %d... ",epoch);
-#endif
     int acc = 0;
     for(int sample_id=0;sample_id < train_samples_size;sample_id++) {
         RealType loss=real_zero;
@@ -491,11 +487,9 @@ void train(int epoch)
         // momentum = 0.9, wd = 0.0005
         apply_update_fixed(blr,(int)(FIX_SCALE * 5l / 10000),(int)(FIX_SCALE * 9l / 10));
     }
-#ifdef __linux
-    printf("Accuracy %f%%\n",(float)(acc) / train_samples_size *10);
-#endif
+    return ((int32_t)acc * FIX_SCALE / (train_samples_size * 10)); 
 }
-void test()
+RealType test()
 {
     int N=0;
     int acc=0;
@@ -514,9 +508,7 @@ void test()
             N++;
         }
     }
-#ifdef __linux
-    printf("Test Accuracy %f%%\n",(float)(acc)/N*100);
-#endif
+    return ((int32_t)acc * FIX_SCALE / (train_samples_size * 10)); 
 }
 
 #ifdef __linux
@@ -552,10 +544,13 @@ int main()
 {
     printf("Data Size = %d float_size=%d\n",(int)sizeof(AllData),(int)sizeof(RealType));
     make_screen(train_samples,"screen.scr");
-    for(int e=0;e<10;e++)
-        train(e);
+    for(int e=0;e<5;e++) {
+        RealType acc = train(e);
+        printf("Epoch=%d, accuracy = %3.1f%%\n",e,100*to_float(acc));
+    }
     make_screen(test_samples,"test_screen.scr");
-    test();
+    RealType acc = test();
+    printf("Test accuracy = %3.1f%%\n",100*to_float(acc));
     return 0;
 }
 #else
@@ -563,13 +558,14 @@ int main()
 {
     unsigned char *statep = (void*)(25599);
     int epoch = *statep;
+    RealType acc;
     if(epoch < 255) {
-        train(epoch);
+        acc = train(epoch);
     }
     else {
-        test();
+        acc = test();
     }
-    return 0;
+    return acc;
 }
 #endif
 
