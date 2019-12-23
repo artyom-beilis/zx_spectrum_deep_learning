@@ -5,7 +5,10 @@
 #include "train_samples.h"
 #include "test_samples.h"
 #else
+#include "enable_timer.h"
 const int train_samples_size=64;
+
+
 #endif
 
 #define BATCH_SIZE 10
@@ -355,14 +358,11 @@ void mark_character(int digit,int batch,int status)
 unsigned char sample[8];
 float blr = BASE_LR;
 float inv_blr = (1.0/BASE_LR);
-void train(int epoch)
+float train(int epoch)
 {
     if(epoch == 0) {
         init_params(&data.params);
     }
-#ifdef __linux
-    printf("Epoch %d... ",epoch);
-#endif
     float acc = 0.0;
     for(int sample_id=0;sample_id < train_samples_size;sample_id++) {
         float loss = 0.0;
@@ -382,11 +382,10 @@ void train(int epoch)
         }
         apply_update(&data.params,&data.params_diffs,blr,inv_blr,0.0005,0.9);
     }
-#ifdef __linux
-    printf("Accuracy %f%%\n",acc / train_samples_size *10);
-#endif
+    return acc / (train_samples_size *10);
 }
-void test()
+
+float test()
 {
     int N=0;
     float acc = 0.0;
@@ -405,9 +404,7 @@ void test()
             N++;
         }
     }
-#ifdef __linux
-    printf("Test Accuracy %f%%\n",acc/N*100);
-#endif
+    return acc / N;
 }
 
 #ifdef __linux
@@ -443,24 +440,31 @@ int main()
 {
     printf("Data Size = %d\n",(int)sizeof(AllData));
     make_screen(train_samples,"screen.scr");
-    for(int e=0;e<5;e++)
-        train(e);
+    for(int e=0;e<5;e++) {
+        float acc = train(e);
+        printf("Epoch %d acc=%4.1f\n",e,acc*100);
+    }
     make_screen(test_samples,"test_screen.scr");
-    test();
+    float acc = test();
+    printf("Test acc=%4.1f\n",acc*100);
     return 0;
 }
 #else
+
+
 int main()
 {
+    enable_timer();
     unsigned char *statep = (void*)(25599);
     int epoch = *statep;
+    float acc;
     if(epoch < 255) {
-        train(epoch);
+        acc = train(epoch);
     }
     else {
-        test();
+        acc = test();
     }
-    return 0;
+    return (int)(4096*acc + 0.5);
 }
 #endif
 

@@ -10,6 +10,7 @@
 #include "fixed12_math.h"
 #endif
 const int train_samples_size=64;
+#include "enable_timer.h"
 #endif
 
 #define BATCH_SIZE 10
@@ -556,6 +557,7 @@ int main()
 #else
 int main()
 {
+    enable_timer();
     unsigned char *statep = (void*)(25599);
     int epoch = *statep;
     RealType acc;
