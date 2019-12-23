@@ -22,11 +22,6 @@ const int train_samples_size=64;
 #define FLAT_SIZE (POOL_SIZE*POOL_SIZE*KERNELS)
 #define CLASS_NO 10
 
-//using namespace half_float;
-//typedef half_float::half RealType;
-
-#define USE_FIXED_HALF
-#ifdef USE_FIXED_HALF
 
 #define FIX_SHIFT 12
 #define FIX_SCALE (1 << FIX_SHIFT)
@@ -51,7 +46,7 @@ short fixed12_mpl_ref(short a,short b)
 
 #define real_mpl(a,b) fixed12_mpl_ref(a,b)
 #define real_mpl_nshift(a,b) ((int)(a) * (b))
-#else
+#else // zx spectrum
 #define real_mpl(a,b) fixed12_mpl((a),(b))
 #define real_mpl_nshift(a,b) mpl_2int_to_long(a,b)
 typedef long int32_t;
@@ -65,20 +60,6 @@ typedef short RealType;
 #define real_zero 0
 #define real_one FIX_SCALE
 #define real_half(v) ((v)>>1)
-
-#else
-typedef float RealType;
-#define real_zero 0.0f
-#define real_one  1.0f
-#define real_mpl(a,b) ((a)*(b))
-#define from_float(x) (x)
-#define to_float(x) (x)
-
-inline float real_half(float v)
-{
-    return 0.5f*v;
-}
-#endif
 
 inline RealType max(RealType a,RealType b)
 {
