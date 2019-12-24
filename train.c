@@ -7,18 +7,12 @@
 #else
 #include "enable_timer.h"
 const int train_samples_size=64;
-
-
 #endif
 
-#define BATCH_SIZE 10
-#define INPSIZE 8
-#define KERNELS 12
-#define KSIZE   3
+#include "config.h"
 #define INTERM_SIZE (INPSIZE - KSIZE + 1)
 #define POOL_SIZE (INTERM_SIZE  >> 1)
 #define FLAT_SIZE (POOL_SIZE*POOL_SIZE*KERNELS)
-#define CLASS_NO 10
 
 
 inline float max(float a,float b)
@@ -364,9 +358,9 @@ float train(int epoch)
         init_params(&data.params);
     }
     float acc = 0.0;
-    for(int sample_id=0;sample_id < train_samples_size;sample_id++) {
+    for(int sample_id=0;sample_id < DATA_SIZE;sample_id++) {
         float loss = 0.0;
-        for(int i=0;i<10;i++) {
+        for(int i=0;i<CLASS_NO;i++) {
             get_character(sample,i*rows_for_digit + sample_id / 32,sample_id % 32);
             mark_character(i,sample_id,ST_TRAIN);
             float cur_ac = forward_backward(&data,sample,i,&loss);
@@ -380,18 +374,20 @@ float train(int epoch)
             blr*=0.1;
             inv_blr*=10.0;
         }
-        apply_update(&data.params,&data.params_diffs,blr,inv_blr,0.0005,0.9);
+        if(sample_id % ITER_SIZE == (ITER_SIZE-1)) {
+            apply_update(&data.params,&data.params_diffs,blr,inv_blr,0.0005,0.9);
+        }
     }
-    return acc / (train_samples_size *10);
+    return acc / (train_samples_size *CLASS_NO);
 }
 
 float test()
 {
     int N=0;
     float acc = 0.0;
-    for(int b=0;b<train_samples_size;b++) {
+    for(int b=0;b<DATA_SIZE;b++) {
         float loss = 0.0;
-        for(int i=0;i<10;i++) {
+        for(int i=0;i<CLASS_NO;i++) {
             int sample_id = b;
             get_character(sample,i*rows_for_digit + sample_id / 32,sample_id % 32);
             mark_character(i,sample_id,ST_TRAIN);
@@ -440,7 +436,7 @@ int main()
 {
     printf("Data Size = %d\n",(int)sizeof(AllData));
     make_screen(train_samples,"screen.scr");
-    for(int e=0;e<5;e++) {
+    for(int e=0;e<EPOCHS;e++) {
         float acc = train(e);
         printf("Epoch %d acc=%4.1f\n",e,acc*100);
     }

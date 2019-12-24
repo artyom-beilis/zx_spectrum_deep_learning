@@ -12,15 +12,11 @@
 const int train_samples_size=64;
 #include "enable_timer.h"
 #endif
+#include "config.h"
 
-#define BATCH_SIZE 10
-#define INPSIZE 8
-#define KERNELS 12
-#define KSIZE   3
 #define INTERM_SIZE (INPSIZE - KSIZE + 1)
 #define POOL_SIZE (INTERM_SIZE  >> 1)
 #define FLAT_SIZE (POOL_SIZE*POOL_SIZE*KERNELS)
-#define CLASS_NO 10
 
 
 #define FIX_SHIFT 12
@@ -47,8 +43,13 @@ short fixed12_mpl_ref(short a,short b)
 #define real_mpl(a,b) fixed12_mpl_ref(a,b)
 #define real_mpl_nshift(a,b) ((int)(a) * (b))
 #else // zx spectrum
+#if 1
 #define real_mpl(a,b) fixed12_mpl((a),(b))
 #define real_mpl_nshift(a,b) mpl_2int_to_long(a,b)
+#else // performance check without fixed point impl
+#define real_mpl(a,b) ((int)(((long)(a)*(b) + 2048) >> FIX_SHIFT))
+#define real_mpl_nshift(a,b) ((long)(a)*(b))
+#endif
 typedef long int32_t;
 #endif
 
@@ -451,9 +452,9 @@ RealType train(int epoch)
         init_params(&data.params);
     }
     int acc = 0;
-    for(int sample_id=0;sample_id < train_samples_size;sample_id++) {
+    for(int sample_id=0;sample_id < DATA_SIZE;sample_id++) {
         RealType loss=real_zero;
-        for(int i=0;i<10;i++) {
+        for(int i=0;i<CLASS_NO;i++) {
             get_character(sample,i*rows_for_digit + sample_id / 32,sample_id % 32);
             mark_character(i,sample_id,ST_TRAIN);
             int cur_ac = forward_backward(&data,sample,i,&loss);
@@ -466,18 +467,20 @@ RealType train(int epoch)
         if(epoch==2 && sample_id == 0) {
             blr /= 10;
         }
-        // momentum = 0.9, wd = 0.0005
-        apply_update_fixed(blr,(int)(FIX_SCALE * 5l / 10000),(int)(FIX_SCALE * 9l / 10));
+        if(sample_id % ITER_SIZE == (ITER_SIZE-1)) {
+            // momentum = 0.9, wd = 0.0005
+            apply_update_fixed(blr,(int)(FIX_SCALE * 5l / 10000),(int)(FIX_SCALE * 9l / 10));
+        }
     }
-    return ((int32_t)acc * FIX_SCALE / (train_samples_size * 10)); 
+    return ((int32_t)acc * FIX_SCALE / (train_samples_size * CLASS_NO)); 
 }
 RealType test()
 {
     int N=0;
     int acc=0;
-    for(int b=0;b<train_samples_size;b++) {
+    for(int b=0;b<DATA_SIZE;b++) {
         RealType loss=real_zero;
-        for(int i=0;i<10;i++) {
+        for(int i=0;i<CLASS_NO;i++) {
             int sample_id = b;
             get_character(sample,i*rows_for_digit + sample_id / 32,sample_id % 32);
             mark_character(i,sample_id,ST_TRAIN);
@@ -490,7 +493,7 @@ RealType test()
             N++;
         }
     }
-    return ((int32_t)acc * FIX_SCALE / (train_samples_size * 10)); 
+    return ((int32_t)acc * FIX_SCALE / (train_samples_size * CLASS_NO)); 
 }
 
 #ifdef __linux
@@ -526,7 +529,7 @@ int main()
 {
     printf("Data Size = %d float_size=%d\n",(int)sizeof(AllData),(int)sizeof(RealType));
     make_screen(train_samples,"screen.scr");
-    for(int e=0;e<5;e++) {
+    for(int e=0;e<EPOCHS;e++) {
         RealType acc = train(e);
         printf("Epoch=%d, accuracy = %3.1f%%\n",e,100*to_float(acc));
     }
