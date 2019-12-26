@@ -1,10 +1,10 @@
     5 REM "Params very fast config"
-   10 LET kernels=4
+   10 LET kernels=12
    15 LET ksize=3
-   20 LET itersize=4
-   30 LET clsno=2
+   20 LET itersize=1
+   30 LET clsno=10
    35 LET batch=64: LET epochs=2
-   40 LET blr=0.01 : LET blr2=0.01
+   40 LET blr=0.01 : LET blr2=0.001 : LET iblr=1/blr
    50 LET wd=0.0005
    60 LET beta=0.90
    61 REM "Params End"
@@ -21,6 +21,8 @@
   110 DIM r(2,clsno) : REM "probs"
   120 DIM s(fltsz) : REM "pool mask"
   130 DIM d(8,8) : REM "digit"
+  140 DIM z(20): LET timep=1
+  141 DIM z$(20,2)
   200 REM "Functions"
   210 DEF FN g(s)=s*(RND+RND+RND+RND+RND+RND+RND+RND+RND+RND+RND+RND-6)
   220 DEF FN r(x)=(x>0)*x
@@ -35,13 +37,14 @@
   330 FOR r=1 TO clsno: FOR c=1 TO fltsz: LET m(1,r,c)=FN g(sigma): NEXT c: NEXT r
   400 REM "train loop"
   410 FOR e=1 TO epochs
-  420 IF e>=2 THEN LET blr=blr2
+  420 IF e>=2 THEN LET blr=blr2: LET iblr=1/blr
   422 GO SUB 9000: LET start=time
   425 LET acc=0: LET count=0
   427 LET iter=0
   430 FOR b=0 TO batch-1
   435 LET loss=0
   440 FOR d=0 TO clsno-1
+  445 LET n$="GP": GO SUB 9020
   450 GO SUB 8000: REM "Get pixel from d,b"
   455 LET mark=24: GO SUB 8050: REM "Mark"
   460 GO SUB 3500 : REM "Forward"
@@ -79,13 +82,14 @@
  3498 REM "Forward Prop"
  3499 REM "Conv FWD"
  3500 PRINT AT 21,0;"FW  ";
- 3505 FOR r=1 TO intsz: FOR c=1 TO intsz : FOR n=1 TO kernels
- 3510 LET sum=o(1,n)
+ 3501 LET n$="FC": GO SUB 9020
+ 3505 FOR r=1 TO intsz: FOR c=1 TO intsz 
+ 3510 FOR n=1 TO kernels: LET c(1,n,r,c)=o(1,n): NEXT n
  3520 FOR i=1 TO ksize: FOR j=1 TO ksize
- 3530 LET sum=sum + k(1,n,i,j) * d(r+i-1,c+j-1)
+ 3530 IF d(r+i-1,c+j-1) THEN FOR n=1 TO kernels: LET c(1,n,r,c)=c(1,n,r,c) + k(1,n,i,j) : NEXT n
  3540 NEXT j: NEXT i
- 3550 LET c(1,n,r,c) = sum
- 3560 NEXT n: NEXT c: NEXT r
+ 3560 NEXT c: NEXT r
+ 3570 LET n$="FP": GO SUB 9020
  3599 REM "Max Pool Relu"
  3600 LET pos=1
  3605 FOR n=1 TO kernels: FOR r=1 TO poolsz*2 STEP 2 : FOR c=1 TO poolsz*2 STEP 2
@@ -95,6 +99,7 @@
  3640 IF c(1,n,r+1,c+1) > maxv THEN LET maxv=c(1,n,r+1,c+1) : LET index=3
  3650 LET s(pos)=index : LET p(1,pos)=FN r(maxv) : LET pos=pos+1
  3660 NEXT c: NEXT r: NEXT n
+ 3670 LET n$="FI": GO SUB 9020
  3699 REM "IP Forward"
  3700 FOR i=1 TO clsno
  3710 LET sum=b(1,i)
@@ -103,6 +108,7 @@
  3740 NEXT j
  3750 LET r(1,i)=sum
  3760 NEXT i
+ 3770 LET n$="FL": GO SUB 9020
  3799 REM "Loss"
  3800 LET maxind=0 : LET maxv=r(1,1): LET sum=0
  3810 FOR i=2 TO clsno: 
@@ -118,10 +124,12 @@
  3998 REM "BACK PROP"
  3999 REM "Loss Backward"
  4000 PRINT AT 21,0;"BW  ";
+ 4001 LET n$="BL": GO SUB 9020
  4005 FOR i=1 TO clsno
  4010 LET tgt = (i-1) = d
  4020 LET r(2,i) = r(1,i) - tgt
  4030 NEXT i
+ 4035 LET n$="BI":GO SUB 9020
  4049 REM "IP Backward"
  4050 FOR k=1 TO clsno
  4060 LET b(2,k) = b(2,k) + r(2,k)
@@ -131,6 +139,7 @@
  4100 LET m(2,i,j) = m(2,i,j) + p(1,j)*r(2,i)
  4110 LET p(2,j)=p(2,j) + m(1,i,j) * r(2,i)
  4120 NEXT j: NEXT i
+ 4121 LET n$="BP":GO SUB 9020
  4200 REM "Pool/ReLU backward"
  4210 FOR k=1 TO fltsz
  4220 IF p(1,k) <= 0 THEN LET p(2,k) = 0
@@ -147,6 +156,7 @@
  4330 LET pos=pos+1
  4340 NEXT c: NEXT r
  4350 NEXT k
+ 4355 LET n$="Bo":GO SUB 9020
  4360 REM "Conv Bias BW"
  4400 FOR n=1 TO kernels
  4410 LET sum=0
@@ -155,12 +165,14 @@
  4440 NEXT j : NEXT i
  4450 LET o(2,n) = o(2,n) + sum
  4460 NEXT n
+ 4467 LET n$="BC":GO SUB 9020
  4499 REM "Conv BW"
- 4500 FOR r=1 TO intsz: FOR c=1 TO intsz: FOR n=1 TO kernels
+ 4500 FOR r=1 TO intsz: FOR c=1 TO intsz:
  4510 FOR i=1 TO ksize : FOR j=1 TO ksize
- 4520 LET k(2,n,i,j) = k(2,n,i,j) + d(r+i-1,c+j-1) * c(2,n,r,c)
+ 4520 IF d(r+i-1,c+j-1) THEN FOR n=1 TO kernels: LET k(2,n,i,j) = k(2,n,i,j) + c(2,n,r,c) : NEXT n
  4530 NEXT j: NEXT i
- 4540 NEXT n: NEXT c: NEXT r
+ 4540 NEXT c: NEXT r
+ 4545 LET n$="EE": GO SUB 9020: GO SUB 9200
  4550 RETURN
  4599 REM "End of BW"
  4998 REM "Apply Update"
@@ -207,3 +219,14 @@
  8999 REM "Get timer in minutes"
  9000 LET time=(PEEK 23672+256*(PEEK 23673+256*PEEK 23674))/3000
  9010 RETURN 
+ 9020 RETURN : REM "Uncomment to prof"
+ 9021 LET z(timep) = (PEEK 23672+256*(PEEK 23673+256*PEEK 23674))/50
+ 9025 LET z$(timep) = n$
+ 9030 LET timep=timep+1
+ 9040 RETURN
+ 9200 RETURN : REM "Uncomment to prof"
+ 9201 CLS
+ 9210 FOR i=1 TO timep-2
+ 9220 PRINT z$(i);":";(z(i+1) - z(i))
+ 9230 NEXT i
+ 9240 STOP
