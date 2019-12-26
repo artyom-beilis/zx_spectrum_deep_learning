@@ -15,12 +15,12 @@ const int train_samples_size=64;
 #define FLAT_SIZE (POOL_SIZE*POOL_SIZE*KERNELS)
 
 
-inline float max(float a,float b)
+static inline float max(float a,float b)
 {
     return a > b ? a : b;
 }
 
-inline float relu(float x)
+static inline float relu(float x)
 {
     if( x > 0.0f)
         return x;
@@ -414,33 +414,91 @@ void print_character(unsigned char *chr,int r,int c)
     }
 }
 
+void make_screen_data(unsigned char samples[10][sizeof(train_samples) / 10 / 8][8],int digits,int offset)
+{
+    for(int b=0;b<train_samples_size;b++) {
+        for(int c=0;c<digits;c++) {
+            print_character(samples[c][b],offset + c*rows_for_digit + b / 32,b % 32);
+        }
+    }
+}
+
+struct __attribute__((packed)) tap_header {
+    unsigned char type;
+    char file_name[10];
+    unsigned short length;
+    unsigned short start;
+    short dummy;
+};
+
+void write_body(unsigned char *ptr,int code,int length,FILE *f)
+{
+    unsigned short len = length + 2;
+    fwrite(&len,2,1,f);
+    unsigned char cs = code;
+    fputc(cs,f);
+    for(int i=0;i<length;i++)
+        cs ^= ptr[i];
+    fwrite(ptr,length,1,f);
+    fputc(cs,f);
+}
+
+void write_header(char const *name,FILE *f)
+{
+    struct tap_header h;
+    h.type = 3;
+    memset(h.file_name,' ',sizeof(h.file_name));
+    int len = strlen(name);
+    if(len > (int)sizeof(h.file_name))
+        len = sizeof(h.file_name);
+    memcpy(h.file_name,name,len);
+    h.length = sizeof(screen);
+    h.start = 16384;
+    h.dummy = -1;
+    write_body(&h.type,0,sizeof(h),f);
+}
+
 void make_screen(unsigned char samples[10][sizeof(train_samples) / 10 / 8][8],char const *name)
 {
     memset(screen,0,6144);
     memset(screen+6144,56,32*24);
 
-    for(int b=0;b<train_samples_size;b++) {
-        for(int c=0;c<10;c++) {
-            print_character(samples[c][b],c*rows_for_digit + b / 32,b % 32);
-        }
-    }
-    FILE *f=fopen(name,"w");
-    fwrite(screen,sizeof(screen),1,f);
-    fclose(f);
+    make_screen_data(samples,10,0);
 
+    FILE *f=fopen(name,"w");
+    write_header(name,f);
+    write_body(screen,0xFF,sizeof(screen),f);
+    fclose(f);
 }
+
+void make_merged(char const *name)
+{
+    memset(screen,0,6144);
+    memset(screen+6144,56,32*24);
+
+    make_screen_data(train_samples,2,0);
+    make_screen_data(test_samples,2,4);
+
+    FILE *f=fopen(name,"w");
+    write_header(name,f);
+    write_body(screen,0xFF,sizeof(screen),f);
+    fclose(f);
+}
+
+
 #endif
 
 #ifdef __linux
 int main()
 {
     printf("Data Size = %d\n",(int)sizeof(AllData));
-    make_screen(train_samples,"screen.scr");
+    make_merged("train_and_test_screen.tap");
+    make_screen(train_samples,"train_screen.tap");
     for(int e=0;e<EPOCHS;e++) {
         float acc = train(e);
         printf("Epoch %d acc=%4.1f\n",e,acc*100);
     }
-    make_screen(test_samples,"test_screen.scr");
+    make_screen(test_samples,"test_screen.tap");
     float acc = test();
     printf("Test acc=%4.1f\n",acc*100);
     return 0;

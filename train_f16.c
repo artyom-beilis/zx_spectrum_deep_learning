@@ -9,6 +9,7 @@
 #ifndef __linux
 #include "fixed12_math.h"
 #endif
+#include <stdio.h>
 const int train_samples_size=64;
 #include "enable_timer.h"
 #endif
@@ -21,6 +22,7 @@ const int train_samples_size=64;
 
 #define FIX_SHIFT 12
 #define FIX_SCALE (1 << FIX_SHIFT)
+#define FIX_ROUND (1 << (FIX_SHIFT-1))
 #define FIX_MASK  (FIX_SCALE - 1)
 
 #ifdef __linux
@@ -35,19 +37,36 @@ short fixed12_mpl_ref(short a,short b)
     int res = (int)(a) * b;
     if(neg)
         res = -res;
-    res += 2048;
-    return res >> 12;
+    res += FIX_ROUND;
+    res >>= 12;
+    return res;
 }
 
+int fixed12_mpl_no_shift(short a,short b)
+{
+    int neg = (a < 0) ^ (b < 0);
+    if(a < 0)
+        a=-a;
+    if(b < 0)
+        b=-b;
+    
+    unsigned short au = a;
+    unsigned short bu = b;
+    unsigned res = (unsigned)au * bu;
+    int val = res;
+    if(neg)
+        val = -val;
+    return val;
+}
 
 #define real_mpl(a,b) fixed12_mpl_ref(a,b)
-#define real_mpl_nshift(a,b) ((int)(a) * (b))
+#define real_mpl_nshift(a,b) fixed12_mpl_no_shift(a,b)
 #else // zx spectrum
-#if 1
+#if 0
 #define real_mpl(a,b) fixed12_mpl((a),(b))
 #define real_mpl_nshift(a,b) mpl_2int_to_long(a,b)
 #else // performance check without fixed point impl
-#define real_mpl(a,b) ((int)(((long)(a)*(b) + 2048) >> FIX_SHIFT))
+#define real_mpl(a,b) ((int)(((long)(a)*(b) + FIX_ROUND) >> FIX_SHIFT))
 #define real_mpl_nshift(a,b) ((long)(a)*(b))
 #endif
 typedef long int32_t;
@@ -303,7 +322,7 @@ int forward_backward(AllData *d,unsigned char *digit,int label,RealType *loss)
 }
 
 
-#if 0
+#if 0 
 void apply_update_vfloat(float lr,float wd,float momentum)
 {
     const int size = sizeof(Params) / sizeof(RealType);
@@ -335,8 +354,8 @@ void apply_update_fixed(RealType lr,RealType wd,RealType momentum)
     RealType wd_fact = real_one - wd;
     for(i=0;i<size;i++) {
         int32_t vel = real_mpl_nshift(v[i],momentum) + real_mpl_nshift(lr,pd[i]);
-        p[i] = (real_mpl_nshift(p[i], wd_fact)  - vel + FIX_SCALE / 2) >> FIX_SHIFT;
-        v[i]= (vel + FIX_SCALE / 2) >> FIX_SHIFT;
+        p[i] = (real_mpl_nshift(p[i], wd_fact)  - vel + FIX_ROUND) >> FIX_SHIFT;
+        v[i]= (vel + FIX_ROUND) >> FIX_SHIFT;
         pd[i] = real_zero;
     }
 }
@@ -388,8 +407,10 @@ void xavier(RealType *v,int size,int Nin,int Nout)
 {
     int i;
     RealType sigma = FIX_SCALE * 2 / (Nin + Nout);
+    unsigned short cs=0;
     for(i=0;i<size;i++) {
         v[i] = gauus(sigma);
+        cs = cs ^ v[i];
     }
 }
 #endif
@@ -446,6 +467,8 @@ void mark_character(int digit,int batch,int status)
 
 unsigned char sample[8];
 RealType blr = FIX_SCALE / 100; // 0.01f
+
+
 RealType train(int epoch)
 {
     if(epoch == 0) {
@@ -469,7 +492,7 @@ RealType train(int epoch)
         }
         if(sample_id % ITER_SIZE == (ITER_SIZE-1)) {
             // momentum = 0.9, wd = 0.0005
-            apply_update_fixed(blr,(int)(FIX_SCALE * 5l / 10000),(int)(FIX_SCALE * 9l / 10));
+            apply_update_fixed(blr,(short)(FIX_SCALE * 5l / 10000),(short)(FIX_SCALE * 9l / 10));
         }
     }
     return ((int32_t)acc * FIX_SCALE / (train_samples_size * CLASS_NO)); 
@@ -507,7 +530,7 @@ void print_character(unsigned char *chr,int r,int c)
     }
 }
 
-void make_screen(unsigned char samples[10][sizeof(train_samples) / 10 / 8][8],char const *name)
+void make_screen(unsigned char samples[10][sizeof(train_samples) / 10 / 8][8])
 {
     memset(screen,0,6144);
     memset(screen+6144,56,32*24);
@@ -517,10 +540,6 @@ void make_screen(unsigned char samples[10][sizeof(train_samples) / 10 / 8][8],ch
             print_character(samples[c][b],c*rows_for_digit + b / 32,b % 32);
         }
     }
-    FILE *f=fopen(name,"w");
-    fwrite(screen,sizeof(screen),1,f);
-    fclose(f);
-
 }
 #endif
 
@@ -528,12 +547,12 @@ void make_screen(unsigned char samples[10][sizeof(train_samples) / 10 / 8][8],ch
 int main()
 {
     printf("Data Size = %d float_size=%d\n",(int)sizeof(AllData),(int)sizeof(RealType));
-    make_screen(train_samples,"screen.scr");
+    make_screen(train_samples);
     for(int e=0;e<EPOCHS;e++) {
         RealType acc = train(e);
         printf("Epoch=%d, accuracy = %3.1f%%\n",e,100*to_float(acc));
     }
-    make_screen(test_samples,"test_screen.scr");
+    make_screen(test_samples);
     RealType acc = test();
     printf("Test accuracy = %3.1f%%\n",100*to_float(acc));
     return 0;
