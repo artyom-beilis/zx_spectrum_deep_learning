@@ -1,7 +1,7 @@
 #ifndef MNIST_CONFIG_H
 #define MNIST_CONFIG_H
 
-//#define VERY_FAST
+#define VERY_FAST
 #ifdef VERY_FAST
 
 #define DATA_SIZE  64
