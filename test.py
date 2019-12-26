@@ -9,8 +9,8 @@ import caffe
 
 (x_train,y_train),(x_test,y_test) = np.load('mnist.npy',allow_pickle=True)
 
-train_samples = np.zeros((10,64,8,8),dtype=np.uint8)
-test_samples = np.zeros((10,64,8,8),dtype=np.uint8)
+train_samples = np.zeros((10,8192,8,8),dtype=np.uint8)
+test_samples = np.zeros((10,8192,8,8),dtype=np.uint8)
 
 
 def load_samples(samples,x,y):
@@ -69,8 +69,8 @@ load_samples(train_samples,x_train,y_train)
 load_samples(test_samples,x_test,y_test)
 imsave('train.png',make_samples_image(train_samples))
 
-samples_to_C(train_samples,'train_samples','train_samples.h')
-samples_to_C(test_samples,'test_samples','test_samples.h')
+#samples_to_C(train_samples,'train_samples','train_samples.h')
+#samples_to_C(test_samples,'test_samples','test_samples.h')
 
 solver = caffe.get_solver('lenet_solver.prototxt')
 

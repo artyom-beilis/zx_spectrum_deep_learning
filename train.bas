@@ -1,9 +1,10 @@
     5 REM "Params very fast config"
-   10 LET kernels=12
+   10 LET kernels=4
    15 LET ksize=3
-   20 LET itersize=1
-   30 LET clsno=10
+   20 LET itersize=4
+   30 LET clsno=2
    35 LET batch=64: LET epochs=2
+   36 LET kernels=12: LET itersize=1: LET epochs=5: LET clsno=10
    40 LET blr=0.01 : LET blr2=0.001 : LET iblr=1/blr
    50 LET wd=0.0005
    60 LET beta=0.90
@@ -26,9 +27,7 @@
   200 REM "Functions"
   210 DEF FN g(s)=s*(RND+RND+RND+RND+RND+RND+RND+RND+RND+RND+RND+RND-6)
   220 DEF FN r(x)=(x>0)*x
-  300 REM "loading data"
-  305 LOAD ""SCREEN$
-  310 LET datarow=0
+  300 LOAD ""SCREEN$
   311 REM "Initalization"
   312 PRINT AT 21,0;"INI ";
   315 LET sigma=1/(kernels*ksize*ksize)
@@ -62,7 +61,7 @@
   550 PRINT AT 20,0;"Epoch=";e;" Acc=";acc;"% time ";INT(pass+0.5);"m "
   560 NEXT e
   999 REM "Test"
- 1000 LET datarow=4
+ 1000 LOAD ""SCREEN$
  1422 GO SUB 9000: LET start=time
  1425 LET acc=0: LET count=0
  1430 FOR b=0 TO batch-1
@@ -204,14 +203,14 @@
  5190 RETURN
  5299 REM "End of Apply Update"
  7999 REM "Fill l with digit, b=0-63, d 0 to 9
- 8000 LET row=((b>=32) + d*2 + datarow) * 8
+ 8000 LET row=((b>=32) + d*2) * 8
  8010 LET col=((b>=32)*(b-32)+(b<32)*b) * 8
  8020 FOR r=0 TO 7: FOR c=0 TO 7
  8030 LET d(r+1,c+1)=POINT((col+c),(175-row-r))
  8035 REM PRINT AT 4+r,c;d(r+1,c+1);
  8040 NEXT c: NEXT r: RETURN
  8049 REM "Mark digit/batch"
- 8050 LET row=((b>=32) + d*2 + datarow)
+ 8050 LET row=((b>=32) + d*2)
  8060 LET col=((b>=32)*(b-32)+(b<32)*b)
  8070 LET addr=16384+6144+row*32+col
  8080 POKE addr,mark

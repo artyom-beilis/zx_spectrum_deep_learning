@@ -25,19 +25,22 @@ python bin_to_data.py $ZXTEMP/load_data.bin >$ZXTEMP/load_screen.bas
 
 # make C loader
 gcc -Wall print_epochs_no.c -o $ZXTEMP/print_epochs_no || exit 1
-$ZXTEMP/print_epochs_no | cat loader.bas - $ZXTEMP/load_screen.bas  >$ZXTEMP/c_loader.bas 
+$ZXTEMP/print_epochs_no | cat loader.bas - >$ZXTEMP/c_loader.bas 
 bas2tap -sloader -a1 $ZXTEMP/c_loader.bas c_code_loader.tap
 
+cat train_screen_{header,body}.tap test_screen_{header,body}.tap >train_test.tap
+cat train_screen_body.tap test_screen_body.tap >train_test_body.tap
+
 # make tapes for all
-cat c_code_loader.tap code.tap train_screen.tap test_screen.tap >train_C_float.tap
-cat c_code_loader.tap code_16.tap train_screen.tap test_screen.tap >train_C_fixed.tap
+cat c_code_loader.tap code.tap train_test.tap >train_C_float.tap
+cat c_code_loader.tap code_16.tap train_test.tap >train_C_fixed.tap
 
 
 # make basic code
-bas2tap -slearn -a1 train.bas basic_code.tap || exit 1
-cat basic_code.tap train_and_test_screen.tap >train_basic.tap
-bas2tap -slearn <(cat train.bas | grep -v LOAD) basic_code_for_tobos.tap || exit 1
-cat basic_code_for_tobos.tap train_and_test_screen.tap >train_basic_tobos.tap
+bas2tap -slearn -a1 <(cat train.bas | grep -v ' 36 LET ')  basic_code.tap || exit 1
+cat basic_code.tap train_test.tap >train_basic.tap
+bas2tap -slearn <(cat $ZXTEMP/load_screen.bas train.bas | sed 's/LOAD.*/RANDOMIZE USR 23296/') basic_code_for_tobos.tap || exit 1
+cat basic_code_for_tobos.tap train_test_body.tap >train_basic_tobos.tap
 
 
 

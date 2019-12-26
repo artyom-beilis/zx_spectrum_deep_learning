@@ -43,6 +43,7 @@ typedef struct Layers {
 typedef struct AllData {
     Params params;
     Params params_diffs;
+    Params params_vel;
     Layers blobs;
     Layers blob_diffs;
 } AllData;
@@ -52,20 +53,18 @@ void conv_forward(unsigned char *digit,float kernel[KERNELS][KSIZE][KSIZE],float
 {
     int n,i,j,r,c;
     unsigned char row;
-    float sum;
     for(r=0;r<INTERM_SIZE;r++) {
         for(c=0;c<INTERM_SIZE;c++) {
-            for(n=0;n<KERNELS;n++) {
-                sum = offset[n];
-                for(i=0;i<KSIZE;i++) {
-                    row = digit[r+i];
-                    for(j=0;j<KSIZE;j++) {
-                        if((row >> (c+j)) & 1) {
-                            sum+= kernel[n][i][j];
-                        }
+            for(n=0;n<KERNELS;n++)
+                top[n][r][c] = offset[n];
+            for(i=0;i<KSIZE;i++) {
+                row = digit[r+i];
+                for(j=0;j<KSIZE;j++) {
+                    if((row >> (c+j)) & 1) {
+                        for(n=0;n<KERNELS;n++) 
+                            top[n][r][c]+= kernel[n][i][j];
                     }
                 }
-                top[n][r][c] = sum;
             }
         }
     }
@@ -87,13 +86,12 @@ void conv_backward(unsigned char *digit,float kernel[KERNELS][KSIZE][KSIZE],  fl
     }
     for(r=0;r<INTERM_SIZE;r++) {
         for(c=0;c<INTERM_SIZE;c++) {
-            for(n=0;n<KERNELS;n++) {
-                for(i=0;i<KSIZE;i++) {
-                    row = digit[r+i];
-                    for(j=0;j<KSIZE;j++) {
-                        if((row >> (c+j)) & 1) {
+            for(i=0;i<KSIZE;i++) {
+                row = digit[r+i];
+                for(j=0;j<KSIZE;j++) {
+                    if((row >> (c+j)) & 1) {
+                        for(n=0;n<KERNELS;n++) 
                             kernel_d[n][i][j] += top_d[n][r][c];
-                        }
                     }
                 }
             }
@@ -253,17 +251,21 @@ float forward_backward(AllData *d,unsigned char *digit,int label,float *loss)
     return r;
 }
 
+AllData data;
 
-void apply_update(Params *params,Params *params_diff,float lr,float inv_lr,float wd,float momentum)
+void apply_update(Params *params,Params *params_diff,float lr,float wd,float momentum)
 {
     const int size = sizeof(Params) / sizeof(float);
-    float *p=(float*)(params);
-    float *pd=(float*)(params_diff);
+    float *p=(float*)(&data.params);
+    float *pd=(float*)(&data.params_diffs);
+    float *v=(float*)(&data.params_vel);
+
     int i;
+    float wdcomp = 1.0f - wd;
     for(i=0;i<size;i++) {
-        float v = pd[i] * lr; 
-        p[i] = p[i] - v - p[i] * wd;
-        pd[i] = v * inv_lr * momentum;
+        v[i] = momentum * v[i] + lr * pd[i];
+        p[i] = p[i]*wdcomp  - v[i];
+        pd[i] = 0.0;
     }
 }
 
@@ -308,7 +310,6 @@ void init_params(Params *p)
         p->conv_offset[i]=0.0f;
 }
 
-AllData data;
 
 #ifdef __linux
 unsigned char screen[6144 + 32*24];
@@ -351,7 +352,6 @@ void mark_character(int digit,int batch,int status)
 
 unsigned char sample[8];
 float blr = BASE_LR;
-float inv_blr = (1.0/BASE_LR);
 float train(int epoch)
 {
     if(epoch == 0) {
@@ -372,10 +372,9 @@ float train(int epoch)
         }
         if(epoch==2 && sample_id == 0) {
             blr*=0.1;
-            inv_blr*=10.0;
         }
         if(sample_id % ITER_SIZE == (ITER_SIZE-1)) {
-            apply_update(&data.params,&data.params_diffs,blr,inv_blr,0.0005,0.9);
+            apply_update(&data.params,&data.params_diffs,blr,0.0005,0.9);
         }
     }
     return acc / (train_samples_size *CLASS_NO);
@@ -458,33 +457,20 @@ void write_header(char const *name,FILE *f)
     write_body(&h.type,0,sizeof(h),f);
 }
 
-void make_screen(unsigned char samples[10][sizeof(train_samples) / 10 / 8][8],char const *name)
+void make_screen(unsigned char samples[10][sizeof(train_samples) / 10 / 8][8],char const *hname,char const *bname)
 {
     memset(screen,0,6144);
     memset(screen+6144,56,32*24);
 
     make_screen_data(samples,10,0);
 
-    FILE *f=fopen(name,"w");
-    write_header(name,f);
+    FILE *f=fopen(hname,"w");
+    write_header(bname,f);
+    fclose(f);
+    f=fopen(bname,"w");
     write_body(screen,0xFF,sizeof(screen),f);
     fclose(f);
 }
-
-void make_merged(char const *name)
-{
-    memset(screen,0,6144);
-    memset(screen+6144,56,32*24);
-
-    make_screen_data(train_samples,2,0);
-    make_screen_data(test_samples,2,4);
-
-    FILE *f=fopen(name,"w");
-    write_header(name,f);
-    write_body(screen,0xFF,sizeof(screen),f);
-    fclose(f);
-}
-
 
 #endif
 
@@ -492,13 +478,12 @@ void make_merged(char const *name)
 int main()
 {
     printf("Data Size = %d\n",(int)sizeof(AllData));
-    make_merged("train_and_test_screen.tap");
-    make_screen(train_samples,"train_screen.tap");
+    make_screen(train_samples,"train_screen_header.tap","train_screen_body.tap");
     for(int e=0;e<EPOCHS;e++) {
         float acc = train(e);
         printf("Epoch %d acc=%4.1f\n",e,acc*100);
     }
-    make_screen(test_samples,"test_screen.tap");
+    make_screen(test_samples,"test_screen_header.tap","test_screen_body.tap");
     float acc = test();
     printf("Test acc=%4.1f\n",acc*100);
     return 0;

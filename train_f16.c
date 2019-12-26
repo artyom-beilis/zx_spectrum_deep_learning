@@ -62,14 +62,8 @@ int fixed12_mpl_no_shift(short a,short b)
 #define real_mpl(a,b) fixed12_mpl_ref(a,b)
 #define real_mpl_nshift(a,b) fixed12_mpl_no_shift(a,b)
 #else // zx spectrum
-#if 0
 #define real_mpl(a,b) fixed12_mpl((a),(b))
 #define real_mpl_nshift(a,b) mpl_2int_to_long(a,b)
-#else // performance check without fixed point impl
-#define real_mpl(a,b) ((int)(((long)(a)*(b) + FIX_ROUND) >> FIX_SHIFT))
-#define real_mpl_nshift(a,b) ((long)(a)*(b))
-#endif
-typedef long int32_t;
 #endif
 
 #define from_float(a) ((short)((a)*FIX_SCALE))
@@ -122,20 +116,18 @@ void conv_forward(unsigned char *digit,RealType kernel[KERNELS][KSIZE][KSIZE],Re
 {
     int n,i,j,r,c;
     unsigned char row;
-    RealType sum;
     for(r=0;r<INTERM_SIZE;r++) {
         for(c=0;c<INTERM_SIZE;c++) {
-            for(n=0;n<KERNELS;n++) {
-                sum = offset[n];
-                for(i=0;i<KSIZE;i++) {
-                    row = digit[r+i];
-                    for(j=0;j<KSIZE;j++) {
-                        if((row >> (c+j)) & 1) {
-                            sum+= kernel[n][i][j];
-                        }
+            for(n=0;n<KERNELS;n++)
+                top[n][r][c] = offset[n];
+            for(i=0;i<KSIZE;i++) {
+                row = digit[r+i];
+                for(j=0;j<KSIZE;j++) {
+                    if((row >> (c+j)) & 1) {
+                        for(n=0;n<KERNELS;n++) 
+                            top[n][r][c]+= kernel[n][i][j];
                     }
                 }
-                top[n][r][c] = sum;
             }
         }
     }
@@ -157,13 +149,12 @@ void conv_backward(unsigned char *digit,RealType kernel[KERNELS][KSIZE][KSIZE], 
     }
     for(r=0;r<INTERM_SIZE;r++) {
         for(c=0;c<INTERM_SIZE;c++) {
-            for(n=0;n<KERNELS;n++) {
-                for(i=0;i<KSIZE;i++) {
-                    row = digit[r+i];
-                    for(j=0;j<KSIZE;j++) {
-                        if((row >> (c+j)) & 1) {
+            for(i=0;i<KSIZE;i++) {
+                row = digit[r+i];
+                for(j=0;j<KSIZE;j++) {
+                    if((row >> (c+j)) & 1) {
+                        for(n=0;n<KERNELS;n++) 
                             kernel_d[n][i][j] += top_d[n][r][c];
-                        }
                     }
                 }
             }
