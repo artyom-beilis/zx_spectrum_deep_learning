@@ -12,7 +12,7 @@ Network:
   Conversion: 1x8x8 -> Nx6x6 where N is number of kernels
 
 - Max pooling 2x2 + ReLU : Nx6x6 -> Nx3x3
-- Fully Connected with bias: Nx3x3->2
+- Fully Connected with bias: Nx3x3->M classes 
 - Euclidean loss layer
 
 
