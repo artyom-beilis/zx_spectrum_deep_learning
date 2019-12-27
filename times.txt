@@ -1,0 +1,54 @@
+Benchmark Results
+-----------------
+
+Train/Test Set:
+
+- mnist 64 samples per class
+- 28x28 - cropped to 24x24, downsized to 8x8 and thresholded to 1 bit per color
+
+Network:
+
+- Convolutional layer with kernels size of 3x3 + bais
+  Conversion: 1x8x8 -> Nx6x6 where N is number of kernels
+
+- Max pooling 2x2 + ReLU : Nx6x6 -> Nx3x3
+- Fully Connected with bias: Nx3x3->2
+- Euclidean loss layer
+
+
+Two Training variants:
+
+2 dig.:
+  - two digits only 0,1
+  - 4 kernels
+  - 2 epochs
+  - parameters: Conv 4*3*3 + 4 offset, FC 2x36 + 2 offset, total: 114 prams
+
+10 dig.:
+  - all 10 digits
+  - 12 kernels
+  - 5 epochs
+  - parameters: Conv 12*3*3 + 12 offset, FC 10x108 + 10 offset, total: 1210 prams
+
+Implementations:
+
+- BASIC - standard ZX Spectrum basic  (train.bas)
+- ToBoSFP - same code compiled with ToBoSFP (train.bas)
+- C/float - floating point implementation using z88dk (train.c)
+- C/fixed - fixed point (4:12) computation with custom multiplication
+            written in assembly, using z88dk (train_f16.c)
+
+
+Results:
+--------
+                BASIC   ToBoSFP C/float C/fixed
+                -       ToBoSFP z88dk   z88dk+asm
+2 dig. Train:    5h20m  12m     3.7m    1.5m   
+2 dig. Test:     2h19    6m     1.2m    0.5m
+Total:          12h59m  30m     8.6m    3.5m
+
+                BASIC   ToBoSFP C/float C/fixed
+                -       ToBoSFP z88dk   z88dk+asm
+10 dig Train:   N/A      3h15m   2h16m    41.4m
+10 dig Test:    N/A      1h21m     41m    13.6m
+Total:                  17h36m  12h01m  3h40m
