@@ -1,17 +1,16 @@
+from __future__ import print_function
+from __future__ import division
 import numpy as np
 from scipy.ndimage import zoom
-from scipy.misc import imsave
+from imageio import imsave
+from keras.datasets import mnist
 import sys
-sys.path.append('/opt/caffe/caffe/python')
 import os
-#os.environ['GLOG_minloglevel']='1'
-import caffe
 
-(x_train,y_train),(x_test,y_test) = np.load('mnist.npy',allow_pickle=True)
+(x_train,y_train),(x_test,y_test) = mnist.load_data()
 
-train_samples = np.zeros((10,8192,8,8),dtype=np.uint8)
-test_samples = np.zeros((10,8192,8,8),dtype=np.uint8)
-
+train_samples = np.zeros((10,64,8,8),dtype=np.uint8)
+test_samples = np.zeros((10,64,8,8),dtype=np.uint8)
 
 def load_samples(samples,x,y):
     counters = np.zeros((10,),dtype=np.int32)
@@ -56,9 +55,9 @@ def make_samples_image(samples,rows=1):
                 pos_c = c * 8
                 img[pos_r:pos_r+8,pos_c:pos_c+8] = samples[dig,k,:,:]
     except:
-        print dig*rows
-        print k,k // rows
-        print img.shape,r,c,dig,k,N
+        print(dig*rows)
+        print(k,k // rows)
+        print(img.shape,r,c,dig,k,N)
         raise
     img=img*255
     return img
@@ -67,40 +66,10 @@ def make_samples_image(samples,rows=1):
 
 load_samples(train_samples,x_train,y_train)
 load_samples(test_samples,x_test,y_test)
+
 imsave('train.png',make_samples_image(train_samples))
 
-#samples_to_C(train_samples,'train_samples','train_samples.h')
-#samples_to_C(test_samples,'test_samples','test_samples.h')
-
-solver = caffe.get_solver('lenet_solver.prototxt')
-
-total = 0
-for p in solver.net.params:
-    for pp in solver.net.params[p]:
-        print pp.data.shape
-        total += np.prod(pp.data.shape)
-print total,total*5*2
-
-
-N=train_samples.shape[1]
-solver.net.blobs['label'].data.flat = range(10)
-np.copyto(solver.net.blobs['label_flat'].data,np.eye(10).astype(np.float32))
-for k in range(N*10):
-    pos = k % N
-    np.copyto(solver.net.blobs['data'].data,train_samples[:,pos:pos+1,:,:].astype(np.float32))
-    solver.step(1)
-
-M=test_samples.shape[1]
-acc = 0
-
-for k in range(M):
-    np.copyto(solver.net.blobs['data'].data,test_samples[:,pos:pos+1,:,:].astype(np.float32))
-    solver.net.forward()
-    acc +=solver.net.blobs['accuracy'].data
-print "Accuracy",acc / M
-for blob in solver.net.blobs:
-    print solver.net.blobs[blob].data.shape
-
-
+samples_to_C(train_samples,'train_samples','train_samples.h')
+samples_to_C(test_samples,'test_samples','test_samples.h')
 
 
