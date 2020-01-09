@@ -78,7 +78,7 @@
  1542 GO SUB 9000: LET pass=(time-sr)/50/60
  1545 LET acc=INT(acc / co * 1000)/10
  1550 PRINT "Test Acc=";acc;"% time ";INT(pass+0.5);"m ";
- 1590 GO TO 9999: REM "EEEENNNNDDD"
+ 1590 STOP: REM "EEEENNNNDDD"
  3498 REM "Forward Prop"
  3500 REM "Conv FWD"
  3505 FOR r=1 TO iz: FOR c=1 TO iz 
