@@ -5,7 +5,8 @@
 #include <immintrin.h>
 #include <stdio.h>
 #include "float16.h"
-#include "float16_impl.i"
+#include "float16_impl.inl"
+#include <fstream>
 
 
 typedef struct Float32 {
@@ -144,7 +145,7 @@ float16_t float16_next(float16_t r)
 void test_op(char op,float16_t a,float16_t b)
 {
     float ref = calc(op,a,b);
-    float16_t r;
+    float16_t r = float16_t();
     switch(op) {
     case '+': r=float16_add(a,b); break;
     case '-': r=float16_sub(a,b); break;
@@ -154,6 +155,32 @@ void test_op(char op,float16_t a,float16_t b)
     case '=': r=int_to_float16(float16_eq(a,b)); break;
     case ':': r=int_to_float16(float16_gte(a,b)); break;
     }
+    
+    unsigned short rx = 0;
+    unsigned short ax=a.m.value,bx=b.m.value;
+    switch(op) {
+    case '+': rx=f16_add(ax,bx); break;
+    case '-': rx=f16_sub(ax,bx); break;
+    case '*': rx=f16_mul(ax,bx); break;
+    case '/': rx=f16_div(ax,bx); break;
+    case '>': rx=f16_from_int(f16_gt(ax,bx)); break;
+    case '=': rx=f16_from_int(f16_eq(ax,bx)); break;
+    case ':': rx=f16_from_int(f16_gte(ax,bx)); break;
+    }
+    if(rand() % 1000 == 0) {
+        std::ofstream tmps("/tmp/samples.txt",std::ofstream::app);
+        tmps << "{'"<<op<<"'," <<ax<<","<<bx<<","<<rx<<"},"<<std::endl;
+    }
+
+    if(rx != r.m.value) {
+        char buf[64];
+        printf("Operation %s(%d) %c ",float16_format(buf,sizeof(buf),a,8),ax,op);
+        printf("%s(%d) =  ",float16_format(buf,sizeof(buf),b,8),bx);
+        printf("%s(%d) !=  ",float16_format(buf,sizeof(buf),r,8),r.m.value);
+        printf("%s(%d)\n",f16_ftosp(buf,sizeof(buf),rx,8),rx);
+        exit(1);
+    }
+
     float res = float16_to_float32(r);
     if(ref != res) {
         if(force_equal) {
@@ -301,6 +328,18 @@ void test0()
 
 }
 
+void test_print(float v)
+{
+    char buf[128];
+    char buf2[128];
+    float16_t tmp = float32_to_float16(v);
+    v=float16_to_float32(tmp);
+    float16_format(buf,sizeof(buf),tmp,15);
+    f16_ftosp(buf2,sizeof(buf2),tmp.m.value,15);
+    printf("%f=%s\n",v,buf);
+    assert(strcmp(buf,buf2)==0);
+}
+
 int main()
 {
     test0();
@@ -311,5 +350,11 @@ int main()
     test2();
     test3();
     printf("One=%d %d\n",int_to_float16(1).m.value,float32_to_float16(1.0f).m.value);
+    printf("%f\n",float16_to_float32(float16_div(int_to_float16(5),int_to_float16(10000))));
+    test_print(123.234);
+    test_print(-1024);
+    test_print(123423323);
+    test_print(0.2145232);
+    test_print(0.0005);
     return 0;
 }

@@ -10,7 +10,7 @@ const int train_samples_size=64;
 #endif
 
 #include "float16.h"
-
+#include <stdio.h>
 #include "config.h"
 #define INTERM_SIZE (INPSIZE - KSIZE + 1)
 #define POOL_SIZE (INTERM_SIZE  >> 1)
@@ -169,7 +169,7 @@ void ip_forward(f16_t bottom[FLAT_SIZE],f16_t top[CLASS_NO],f16_t offset[CLASS_N
     for(i=0;i<CLASS_NO;i++) {
         sum = offset[i];
         for(j=0;j<FLAT_SIZE;j++) {
-            sum  = f16_add(sum,f16_mul(bottom[j],M[i][j]);
+            sum  = f16_add(sum,f16_mul(bottom[j],M[i][j]));
         }
         top[i]=sum;
     }
@@ -246,9 +246,9 @@ void net_backward(unsigned char *digit,int label,Params *p,Params *pd,Layers *l,
                        pd->conv_kernel,pd->conv_offset,ld->conv_res);
 }
 
-f16_t forward_backward(AllData *d,unsigned char *digit,int label,f16_t *loss)
+int forward_backward(AllData *d,unsigned char *digit,int label,f16_t *loss)
 {
-    f16_t r;
+    int r;
     r = net_forward(digit,label,&d->params,&d->blobs,loss);
     net_backward(digit,label,&d->params,&d->params_diffs,&d->blobs,&d->blob_diffs);
     return r;
@@ -281,23 +281,22 @@ unsigned short randv()
     return lfsr;
 }
 
-float gauus()
+f16_t gauus()
 {
     unsigned res = 0;
     int i;
-    static float const factor = (16.0 / 65536.0);
+    f16_t factor = f16_div(f16_one,f16_from_int(4096));
     for(i=0;i<12;i++)
-        res += randv() >> 4;
-    return factor * res - 6.0f;
-
+        res += randv() >> 5;
+    return f16_sub(f16_mul(factor,f16_from_int(res)),f16_from_int(3));
 }
 
-void xavier(float *v,int size,int Nin,int Nout)
+void xavier(f16_t *v,int size,int Nin,int Nout)
 {
     int i;
-    float factor = 2.0 / (Nin + Nout);
+    f16_t factor = f16_div(f16_from_int(2),f16_from_int(Nin + Nout));
     for(i=0;i<size;i++) {
-        v[i] = factor * gauus();
+        v[i] = f16_mul(factor,gauus());
     }
 }
 
@@ -306,11 +305,11 @@ void init_params(Params *p)
     int i;
     xavier(&p->ip_mat[0][0],CLASS_NO*FLAT_SIZE,FLAT_SIZE,CLASS_NO);
     for(i=0;i<CLASS_NO;i++)
-        p->ip_offset[i]=0.0f;
+        p->ip_offset[i]=0;
 
     xavier(&p->conv_kernel[0][0][0],KERNELS*KSIZE*KSIZE,KERNELS*KSIZE*KSIZE,KERNELS*KSIZE*KSIZE);
     for(i=0;i<KERNELS;i++)
-        p->conv_offset[i]=0.0f;
+        p->conv_offset[i]=0;
 }
 
 
@@ -351,50 +350,52 @@ void mark_character(int digit,int batch,int status)
     }
 }
 
-#define BASE_LR 0.01
 
 unsigned char sample[8];
-float blr = BASE_LR;
-float train(int epoch)
+f16_t blr = 0; 
+f16_t train(int epoch)
 {
     if(epoch == 0) {
         init_params(&data.params);
+        blr = f16_div(f16_one,f16_from_int(100));
     }
-    float acc = 0.0;
+    int acc = 0;
     for(int sample_id=0;sample_id < DATA_SIZE;sample_id++) {
-        float loss = 0.0;
+        f16_t loss = 0;
         for(int i=0;i<CLASS_NO;i++) {
             get_character(sample,i*rows_for_digit + sample_id / 32,sample_id % 32);
             mark_character(i,sample_id,ST_TRAIN);
-            float cur_ac = forward_backward(&data,sample,i,&loss);
-            if(cur_ac == 0.0f)
+            int cur_ac = forward_backward(&data,sample,i,&loss);
+            if(!cur_ac) 
                 mark_character(i,sample_id,ST_FAIL);
             else
                 mark_character(i,sample_id,ST_OK);
             acc += cur_ac;
         }
         if(epoch==2 && sample_id == 0) {
-            blr*=0.1;
+            blr = f16_div(blr,f16_from_int(10));
         }
         if(sample_id % ITER_SIZE == (ITER_SIZE-1)) {
-            apply_update(&data.params,&data.params_diffs,blr,0.0005,0.9);
+            f16_t wd = f16_div(f16_from_int(5),f16_from_int(10000));
+            f16_t mom = f16_div(f16_from_int(9),f16_from_int(10));
+            apply_update(&data.params,&data.params_diffs,blr,wd,mom);
         }
     }
-    return acc / (train_samples_size *CLASS_NO);
+    return f16_div(f16_from_int(acc),f16_from_int(train_samples_size *CLASS_NO));
 }
 
-float test()
+f16_t test()
 {
     int N=0;
-    float acc = 0.0;
+    int acc = 0;
     for(int b=0;b<DATA_SIZE;b++) {
-        float loss = 0.0;
+        f16_t loss = 0;
         for(int i=0;i<CLASS_NO;i++) {
             int sample_id = b;
             get_character(sample,i*rows_for_digit + sample_id / 32,sample_id % 32);
             mark_character(i,sample_id,ST_TRAIN);
-            float cur_ac = net_forward(sample,i,&data.params,&data.blobs,&loss);
-            if(cur_ac == 0.0f)
+            int cur_ac = net_forward(sample,i,&data.params,&data.blobs,&loss);
+            if(!cur_ac)
                 mark_character(i,sample_id,ST_FAIL);
             else
                 mark_character(i,sample_id,ST_OK);
@@ -402,7 +403,7 @@ float test()
             N++;
         }
     }
-    return acc / N;
+    return f16_div(f16_from_int(acc),f16_from_int(N));
 }
 
 #ifdef __linux
@@ -483,12 +484,12 @@ int main()
     printf("Data Size = %d\n",(int)sizeof(AllData));
     make_screen(train_samples,"train_screen_header.tap","train_screen_body.tap");
     for(int e=0;e<EPOCHS;e++) {
-        float acc = train(e);
-        printf("Epoch %d acc=%4.1f\n",e,acc*100);
+        f16_t acc = train(e);
+        printf("Epoch %d acc=%s\n",e,f16_ftos(f16_mul(acc,f16_from_int(100))));
     }
     make_screen(test_samples,"test_screen_header.tap","test_screen_body.tap");
-    float acc = test();
-    printf("Test acc=%4.1f\n",acc*100);
+    f16_t acc = test();
+    printf("Test acc=%s\n",f16_ftos(f16_mul(acc,f16_from_int(100))));
     return 0;
 }
 #else
@@ -499,14 +500,14 @@ int main()
     enable_timer();
     unsigned char *statep = (void*)(25599);
     int epoch = *statep;
-    float acc;
+    f16_t acc;
     if(epoch < 255) {
         acc = train(epoch);
     }
     else {
         acc = test();
     }
-    return (int)(4096*acc + 0.5);
+    return f16_int(f16_mul(f16_from_int(4096),acc));
 }
 #endif
 

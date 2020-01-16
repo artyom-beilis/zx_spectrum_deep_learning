@@ -1,11 +1,37 @@
+//#define F16_ROUND
+#include <stdio.h>
+#include <stdint.h>
+typedef struct Float16 {
+    union {
+        unsigned short value;
+        struct {
+            unsigned short fraction : 10;
+            unsigned short exponent : 5;
+            unsigned short sign : 1;
+        };
+    } m;
+} float16_t;
+
+
+
 static float16_t float16_inf(int neg)
 {
     float16_t r;
     r.m.sign = neg;
-    r.m.value = 0;
+    r.m.fraction = 0;
     r.m.exponent = 31;
     return r;
 }
+
+static float16_t float16_nan()
+{
+    float16_t r;
+    r.m.sign = 0;
+    r.m.value = 1023;
+    r.m.exponent = 31;
+    return r;
+}
+
 
 static float16_t float16_zero(int neg)
 {
@@ -22,6 +48,8 @@ static float16_t float16_neg(float16_t v)
     return v;
 }
 
+#define IS_INVALID(v) ((v).m.exponent == 31)
+
 static float16_t float16_sub(float16_t a,float16_t b);
 static float16_t float16_add(float16_t a,float16_t b);
 
@@ -35,6 +63,8 @@ static float16_t float16_add(float16_t a,float16_t b)
         return b;
     if(b.m.exponent == 0)
         return a;
+    if(IS_INVALID(a) || IS_INVALID(b))
+        return float16_nan();
 
     if((0x7FFF & a.m.value) < (0x7FFF & b.m.value)) {
         float16_t x=a;
@@ -45,9 +75,13 @@ static float16_t float16_add(float16_t a,float16_t b)
     unsigned short m2 = b.m.fraction | 1024;
     unsigned short diff = a.m.exponent - b.m.exponent;
     if(diff > 0) {
+#ifdef F16_ROUND
         m2 >>= diff-1;
         m2++;
         m2 >>= 1;
+#else
+        m2>>=diff;
+#endif
     }
     m1 += m2;
     if(m1 & 2048) {
@@ -69,6 +103,9 @@ static float16_t float16_sub(float16_t a,float16_t b)
     if(b.m.exponent == 0)
         return a;
 
+    if(IS_INVALID(a) || IS_INVALID(b))
+        return float16_nan();
+
     if(a.m.sign != b.m.sign) {
         b.m.sign^=1;
         return float16_add(a,b);
@@ -85,9 +122,13 @@ static float16_t float16_sub(float16_t a,float16_t b)
     unsigned m1 = a.m.fraction | 1024;
     unsigned m2 = b.m.fraction | 1024;
     if(ediff) {
+#ifdef F16_ROUND        
         m2 >>= ediff-1;
         m2++;
         m2 >>=1;
+#else
+        m2 >>= ediff;
+#endif        
     }
     m1 -= m2;
     if(m1 != 0) {
@@ -111,29 +152,39 @@ static float16_t float16_mul(float16_t a,float16_t b)
 {
     float16_t res;
     res.m.sign = a.m.sign ^ b.m.sign;
+
+    if(IS_INVALID(a) || IS_INVALID(b))
+        return float16_nan();
+
     if(a.m.exponent == 0 || b.m.exponent == 0)
         return float16_zero(0);
 
     unsigned short m1 = a.m.fraction | 1024;
     unsigned short m2 = b.m.fraction | 1024;
-    unsigned v=m1;
+    uint32_t v=m1;
     v*=m2;
     int new_exp = a.m.exponent + b.m.exponent - 15;
     
     if(v & (1<<21)) {
+#ifdef F16_ROUND
         v+= 1024;
+#endif        
         v >>= 11;
         new_exp++;
     }
     else {
+#ifdef F16_ROUND        
         v+=512;
+#endif        
         v >>= 10;
     }
 
+#ifdef F16_ROUND        
     if(v & 2048) {
         v >>= 1;
         new_exp++;
     }
+#endif    
     if(new_exp <= 0) {
         return float16_zero(res.m.sign);
     }
@@ -149,6 +200,8 @@ static float16_t float16_div(float16_t a,float16_t b)
 {
     float16_t res;
     res.m.sign = a.m.sign ^ b.m.sign;
+    if(IS_INVALID(a) || IS_INVALID(b))
+        return float16_nan();
     if(b.m.exponent == 0) {
         return float16_inf(res.m.sign);
     }
@@ -158,9 +211,15 @@ static float16_t float16_div(float16_t a,float16_t b)
 
     unsigned short m1 = a.m.fraction | 1024;
     unsigned short m2 = b.m.fraction | 1024;
-    unsigned v=(unsigned)m1 << 10;
+    uint32_t v=(unsigned)m1 << 10;
+#ifdef F16_ROUND        
     v= (v + (m2>>1)) / m2;
+#else
+    v= v / m2;
+#endif    
+    
     int new_exp = a.m.exponent - b.m.exponent + 15;
+
     
     if(!(v & 1024)) {
         v<<=1;
@@ -180,14 +239,14 @@ static float16_t float16_div(float16_t a,float16_t b)
 
 static short float16_int(float16_t a)
 {
-    short value = a.m.fraction | 1024;
+    unsigned short value = a.m.fraction | 1024;
     short shift = a.m.exponent - 25;
     if(shift > 0)
         value <<= shift;
     else if(shift < 0)
         value >>= -shift;
     if(a.m.sign)
-        value = -value;
+        return -(short)(value);
     return value;
 }
 
@@ -258,4 +317,39 @@ int float16_gte(float16_t a, float16_t b)
     }
 }
 
+#define add_char(c) do { if(size>1) { *p++ = (c); size--; } } while(0)
+#define add_str(s) do { char const *tmp=s; while(size>1 && *tmp) { *p++=*tmp++; size--; } } while(0)
 
+static char *float16_format(char *p,int size,float16_t a,int prec)
+{
+    char *save = p;
+    unsigned short v;
+    static char buf[8];
+    if(a.m.sign) {
+        add_char('-');
+        a.m.sign = 0;
+    }
+    if(a.m.exponent == 31) {
+        if(a.m.fraction == 0)
+            add_str("inf");
+        else
+            add_str("nan");
+        goto done;
+    }
+    v = float16_int(a);
+    sprintf(buf,"%d",v);
+    add_str(buf);
+    a=float16_sub(a,int_to_float16(v));
+    if(a.m.value == 0 || prec==0)
+        goto done;
+    add_char('.');
+    for(int i=0;i<prec && a.m.value != 0;i++) {
+        a=float16_mul(a,int_to_float16(10));
+        v=float16_int(a);
+        a=float16_sub(a,int_to_float16(v));
+        add_char(v+'0');
+    }
+done:
+    *p=0;
+    return save;    
+}

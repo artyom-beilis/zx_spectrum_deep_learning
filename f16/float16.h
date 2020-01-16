@@ -1,16 +1,5 @@
 #ifndef FLOAT16_H
 #define FLOAT16_H
-typedef struct Float16 {
-    union {
-        unsigned short value;
-        struct {
-            unsigned short fraction : 10;
-            unsigned short exponent : 5;
-            unsigned short sign : 1;
-        };
-    } m;
-} float16_t;
-
 #define f16_one 15360
 #define f16_half 14336
 short f16_add(short a,short b);
@@ -27,5 +16,8 @@ int f16_eq(short a,short b);
 int f16_lte(short a,short b);
 int f16_lt(short a,short b);
 int f16_neq(short a,short b);
+char *f16_ftos(short a);
+char *f16_ftosp(char *buf,int size,short a,int prec);
+
 
 #endif
