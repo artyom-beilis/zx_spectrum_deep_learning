@@ -3,18 +3,9 @@
 #include <string.h>
 #include <emmintrin.h>
 #include <immintrin.h>
-#define FLOAT16_BIAS 15
-typedef struct Float16 {
-    union {
-        unsigned short value;
-        struct {
-            unsigned short fraction : 10;
-            unsigned short exponent : 5;
-            unsigned short sign : 1;
-        };
-    } m;
-} float16_t;
-
+#include <stdio.h>
+#include "float16.h"
+#include "float16_impl.i"
 
 
 typedef struct Float32 {
@@ -28,24 +19,6 @@ typedef struct Float32 {
         };
     } m;
 } Float32;
-
-float16_t float16_inf(int neg)
-{
-    float16_t r;
-    r.m.sign = neg;
-    r.m.value = 0;
-    r.m.exponent = 31;
-    return r;
-}
-
-float16_t float16_zero(int neg)
-{
-    float16_t r;
-    r.m.sign = neg;
-    r.m.value = 0;
-    r.m.exponent = 0;
-    return r;
-}
 
 float16_t float32_to_float16(float v)
 {
@@ -81,164 +54,6 @@ float float16_to_float32(float16_t v)
     return res;
 }
 
-float16_t float16_neg(float16_t v)
-{
-    v.m.sign ^= 1;
-    return v;
-}
-
-float16_t float16_sub(float16_t a,float16_t b);
-float16_t float16_add(float16_t a,float16_t b);
-
-float16_t float16_add(float16_t a,float16_t b)
-{
-    if(a.m.sign != b.m.sign) {
-        b.m.sign = 1 ^ b.m.sign;
-        return float16_sub(a,b);
-    };
-    if(a.m.exponent == 0)
-        return b;
-    if(b.m.exponent == 0)
-        return a;
-
-    if((0x7FFF & a.m.value) < (0x7FFF & b.m.value)) {
-        std::swap(a,b);
-    }
-    unsigned short m1 = a.m.fraction | 1024;
-    unsigned short m2 = b.m.fraction | 1024;
-    unsigned short diff = a.m.exponent - b.m.exponent;
-    if(diff > 0) {
-        m2 >>= diff-1;
-        m2++;
-        m2 >>= 1;
-    }
-    m1 += m2;
-    if(m1 & 2048) {
-        m1>>=1;
-        a.m.exponent++;
-        if(a.m.exponent == 31) {
-            a.m.fraction = 0;
-            return a;
-        }
-    }
-    a.m.fraction = m1 & 1023;
-    return a;
-}
-
-float16_t float16_sub(float16_t a,float16_t b)
-{
-    if(a.m.exponent == 0) 
-        return float16_neg(b);
-    if(b.m.exponent == 0)
-        return a;
-
-    if(a.m.sign != b.m.sign) {
-        b.m.sign^=1;
-        return float16_add(a,b);
-    };
-
-    if((a.m.value & 0x7FFF) < (b.m.value & 0x7FFF)) {
-        std::swap(a,b);
-        a.m.sign ^= 1;
-    }
-    
-    unsigned ediff = a.m.exponent - b.m.exponent;
-    unsigned m1 = a.m.fraction | 1024;
-    unsigned m2 = b.m.fraction | 1024;
-    if(ediff) {
-        m2 >>= ediff-1;
-        m2++;
-        m2 >>=1;
-    }
-    m1 -= m2;
-    if(m1 != 0) {
-        int new_exp = a.m.exponent;
-        while(!(m1 & 1024)) {
-            new_exp --;
-            m1 <<= 1;
-        }
-        if(new_exp <= 0)
-            return float16_zero(0);
-        a.m.exponent = new_exp;
-        a.m.fraction = m1 & 1023;
-        return a;
-    }
-    return float16_zero(0);
-}
-
-
-
-float16_t float16_mul(float16_t a,float16_t b)
-{
-    float16_t res;
-    res.m.sign = a.m.sign ^ b.m.sign;
-    if(a.m.exponent == 0 || b.m.exponent == 0)
-        return float16_zero(0);
-
-    unsigned short m1 = a.m.fraction | 1024;
-    unsigned short m2 = b.m.fraction | 1024;
-    unsigned v=m1;
-    v*=m2;
-    int new_exp = a.m.exponent + b.m.exponent - 15;
-    
-    if(v & (1<<21)) {
-        v+= 1024;
-        v >>= 11;
-        new_exp++;
-    }
-    else {
-        v+=512;
-        v >>= 10;
-    }
-
-    if(v & 2048) {
-        v >>= 1;
-        new_exp++;
-    }
-    assert(1024 <= v && v<2048);
-    if(new_exp <= 0) {
-        return float16_zero(res.m.sign);
-    }
-    if(new_exp >= 31) {
-        return float16_inf(res.m.sign);
-    }
-    res.m.fraction = v & 1023;
-    res.m.exponent = new_exp;
-    return res;
-}
-
-float16_t float16_div(float16_t a,float16_t b)
-{
-    float16_t res;
-    res.m.sign = a.m.sign ^ b.m.sign;
-    if(b.m.exponent == 0) {
-        return float16_inf(res.m.sign);
-    }
-
-    if(a.m.exponent == 0)
-        return float16_zero(0);
-
-    unsigned short m1 = a.m.fraction | 1024;
-    unsigned short m2 = b.m.fraction | 1024;
-    unsigned v=(unsigned)m1 << 10;
-    v= (v + (m2>>1)) / m2;
-    int new_exp = a.m.exponent - b.m.exponent + 15;
-    
-    if(!(v & 1024)) {
-        v<<=1;
-        new_exp--;
-    }
-    assert(1024<=v && v<2048);
-    if(new_exp <= 0) {
-        return float16_zero(res.m.sign);
-    }
-    if(new_exp >= 31) {
-        return float16_inf(res.m.sign);
-    }
-    res.m.fraction = v & 1023;
-    res.m.exponent = new_exp;
-    return res;
-}
 
 
 std::ostream &operator<<(std::ostream &o,float16_t const &v)
@@ -265,6 +80,9 @@ float calc(int op,float16_t a,float16_t b)
     case '-': v1-=v2; break;
     case '*': v1*=v2; break;
     case '/': v1/=v2; break;
+    case '>': v1 = v1 > v2; break;
+    case '=': v1 = v1 == v2; break;
+    case ':': v1 = v1 >= v2; break;
     }
     return float16_to_float32(float32_to_float16(v1));
 }
@@ -332,6 +150,9 @@ void test_op(char op,float16_t a,float16_t b)
     case '-': r=float16_sub(a,b); break;
     case '*': r=float16_mul(a,b); break;
     case '/': r=float16_div(a,b); break;
+    case '>': r=int_to_float16(float16_gt(a,b)); break;
+    case '=': r=int_to_float16(float16_eq(a,b)); break;
+    case ':': r=int_to_float16(float16_gte(a,b)); break;
     }
     float res = float16_to_float32(r);
     if(ref != res) {
@@ -372,17 +193,6 @@ void test_op(char op,float16_t a,float16_t b)
     }
 }
 
-short float16_int(float16_t a)
-{
-    short value = a.m.fraction | 1024;
-    if(a.m.exponent > 15)
-        value <<= a.m.exponent - 15;
-    else if(a.m.exponent < 15)
-        value >>= 15 - a.m.exponent;
-    if(a.m.sign)
-        value = -value;
-    return value;
-}
 
 void test(unsigned short s1,unsigned short s2,bool with_mul=true)
 {
@@ -391,6 +201,9 @@ void test(unsigned short s1,unsigned short s2,bool with_mul=true)
     memcpy(&b,&s2,2);
     test_op('+',a,b);
     test_op('-',a,b);
+    test_op('=',a,b);
+    test_op('>',a,b);
+    test_op(':',a,b);
     if(with_mul) {
         test_op('*',a,b);
         test_op('/',a,b);
@@ -452,14 +265,51 @@ void test3()
     }
 }
 
+void test_int(float v)
+{
+    int iv=int(v);
+    int iv2 = float16_int(float32_to_float16(v));
+    if(iv2 != iv) {
+        std::cout << v << " int:" << iv << "!=" << iv2 << std::endl;
+    }
+    int iv3 = float16_int(float32_to_float16(iv));
+    if(iv!=iv3) {
+        std::cout << v << " int:" << iv << "!=" << iv3 << std::endl;
+    }
+}
+
+
+
+void test0()
+{
+    test_int(135.13);
+    test_int(1235.13);
+    test_int(0.231);
+    test_int(0.9);
+    test_int(0.01);
+    test_int(1023.243);
+    test_int(4000.124);
+
+    test_int(-135.13);
+    test_int(-1235.13);
+    test_int(-0.231);
+    test_int(-0.9);
+    test_int(-0.01);
+    test_int(-1023.243);
+    test_int(-4000.124);
+
+
+}
 
 int main()
 {
+    test0();
     test1();
     force_equal = false;
     test(22696,7903);
     test(9184,7903);
     test2();
     test3();
+    printf("One=%d %d\n",int_to_float16(1).m.value,float32_to_float16(1.0f).m.value);
     return 0;
 }
