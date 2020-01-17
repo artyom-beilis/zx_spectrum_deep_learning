@@ -48,189 +48,181 @@ static float16_t float16_neg(float16_t v)
     return v;
 }
 
+#define IS_ZERO(v) (((v).m.value & 0x7FFF) == 0)
 #define IS_INVALID(v) ((v).m.exponent == 31)
+#define MANTISSA(v) ((v).m.exponent == 0 ? ((v).m.fraction) :( 1024 | (v).m.fraction))
 
 static float16_t float16_sub(float16_t a,float16_t b);
 static float16_t float16_add(float16_t a,float16_t b);
 
 static float16_t float16_add(float16_t a,float16_t b)
 {
-    if(a.m.sign != b.m.sign) {
-        b.m.sign = 1 ^ b.m.sign;
-        return float16_sub(a,b);
-    };
-    if(a.m.exponent == 0)
-        return b;
-    if(b.m.exponent == 0)
-        return a;
     if(IS_INVALID(a) || IS_INVALID(b))
         return float16_nan();
 
+    int op_add = a.m.sign == b.m.sign;
+    int sign = a.m.sign;
     if((0x7FFF & a.m.value) < (0x7FFF & b.m.value)) {
         float16_t x=a;
         a=b;
         b=x;
+        if(!op_add)
+            sign ^= 1;
     }
-    unsigned short m1 = a.m.fraction | 1024;
-    unsigned short m2 = b.m.fraction | 1024;
-    unsigned short diff = a.m.exponent - b.m.exponent;
-    if(diff > 0) {
-#ifdef F16_ROUND
-        m2 >>= diff-1;
-        m2++;
-        m2 >>= 1;
-#else
-        m2>>=diff;
-#endif
-    }
-    m1 += m2;
-    if(m1 & 2048) {
-        m1>>=1;
-        a.m.exponent++;
-        if(a.m.exponent == 31) {
-            a.m.fraction = 0;
-            return a;
+    int exp = a.m.exponent;
+    unsigned short m1 = MANTISSA(a);
+    unsigned short m2 = MANTISSA(b);
+    int ax = a.m.exponent;
+    int bx = b.m.exponent;
+    ax += (ax==0);
+    bx += (bx==0);
+
+    unsigned short diff = ax - bx;
+
+    //printf("ax=%d(%d) bx=%d(%d) m1=%d m2=%d diff=%d\n",ax,a.m.exponent,bx,b.m.exponent,m1,m2,diff);
+
+    if(op_add) {
+        if(diff > 0) {
+            m2>>=diff;
+        }
+        m1 += m2;
+        if(m1 & 2048) {
+            m1 >>= 1;
+            exp++;
         }
     }
+    else {
+#define DIFF_SHIFT 1
+        m1<<=DIFF_SHIFT;
+        m2<<=DIFF_SHIFT;
+        if(diff > 0) {
+            m2>>=diff;
+        }
+        m1 -= m2;
+        while(exp > 0 && !(m1 & (1024<<DIFF_SHIFT))) { // for shift 3
+            m1<<=1;
+            exp--;
+        }
+        if(exp == 0)
+            m1>>=1 + DIFF_SHIFT;
+        else
+            m1>>=DIFF_SHIFT;
+        //printf("final M=%d e=%d\n",m1,exp);
+    }
+    if(exp >= 31)
+        return float16_inf(sign);
+    a.m.exponent = exp;
     a.m.fraction = m1 & 1023;
+    a.m.sign = sign;
     return a;
 }
 
 static float16_t float16_sub(float16_t a,float16_t b)
 {
-    if(a.m.exponent == 0) 
-        return float16_neg(b);
-    if(b.m.exponent == 0)
-        return a;
-
-    if(IS_INVALID(a) || IS_INVALID(b))
-        return float16_nan();
-
-    if(a.m.sign != b.m.sign) {
-        b.m.sign^=1;
-        return float16_add(a,b);
-    };
-
-    if((a.m.value & 0x7FFF) < (b.m.value & 0x7FFF)) {
-        float16_t x=a;
-        a=b;
-        b=x;
-        a.m.sign ^= 1;
-    }
-    
-    unsigned ediff = a.m.exponent - b.m.exponent;
-    unsigned m1 = a.m.fraction | 1024;
-    unsigned m2 = b.m.fraction | 1024;
-    if(ediff) {
-#ifdef F16_ROUND        
-        m2 >>= ediff-1;
-        m2++;
-        m2 >>=1;
-#else
-        m2 >>= ediff;
-#endif        
-    }
-    m1 -= m2;
-    if(m1 != 0) {
-        int new_exp = a.m.exponent;
-        while(!(m1 & 1024)) {
-            new_exp --;
-            m1 <<= 1;
-        }
-        if(new_exp <= 0)
-            return float16_zero(0);
-        a.m.exponent = new_exp;
-        a.m.fraction = m1 & 1023;
-        return a;
-    }
-    return float16_zero(0);
+    return float16_add(a,float16_neg(b));
 }
 
 
 
 static float16_t float16_mul(float16_t a,float16_t b)
 {
-    float16_t res;
-    res.m.sign = a.m.sign ^ b.m.sign;
-
     if(IS_INVALID(a) || IS_INVALID(b))
         return float16_nan();
 
-    if(a.m.exponent == 0 || b.m.exponent == 0)
-        return float16_zero(0);
+    int sign = a.m.sign ^ b.m.sign;
 
-    unsigned short m1 = a.m.fraction | 1024;
-    unsigned short m2 = b.m.fraction | 1024;
+    unsigned short m1 = MANTISSA(a);
+    unsigned short m2 = MANTISSA(b);
+
+    if(m1 == 0 || m2 == 0)
+        return float16_zero(sign);
+
     uint32_t v=m1;
     v*=m2;
-    int new_exp = a.m.exponent + b.m.exponent - 15;
+    int ax = a.m.exponent;
+    int bx = b.m.exponent;
+    ax += (ax==0);
+    bx += (bx==0);
+    int new_exp = ax + bx - 15;
     
     if(v & (1<<21)) {
-#ifdef F16_ROUND
-        v+= 1024;
-#endif        
         v >>= 11;
         new_exp++;
     }
-    else {
-#ifdef F16_ROUND        
-        v+=512;
-#endif        
+    else if(v & (1<<20)) {
         v >>= 10;
     }
-
-#ifdef F16_ROUND        
-    if(v & 2048) {
-        v >>= 1;
-        new_exp++;
+    else { // denormal
+        new_exp -= 10;
+        while(v >= 2048) {
+            v>>=1;
+            new_exp++;
+        }
     }
-#endif    
     if(new_exp <= 0) {
-        return float16_zero(res.m.sign);
+        v>>=(-new_exp + 1);
+        new_exp = 0;
     }
-    if(new_exp >= 31) {
-        return float16_inf(res.m.sign);
+    else if(new_exp >= 31) {
+        return float16_inf(sign);
     }
+    assert((new_exp > 0 && (1024<=v && v<2048)) || (new_exp == 0 && v<1024));
+    float16_t res;
     res.m.fraction = v & 1023;
     res.m.exponent = new_exp;
+    res.m.sign = sign;
     return res;
 }
 
 static float16_t float16_div(float16_t a,float16_t b)
 {
-    float16_t res;
-    res.m.sign = a.m.sign ^ b.m.sign;
+    int sign = a.m.sign ^ b.m.sign;
     if(IS_INVALID(a) || IS_INVALID(b))
         return float16_nan();
-    if(b.m.exponent == 0) {
-        return float16_inf(res.m.sign);
+    if(IS_ZERO(b)) {
+        return float16_inf(sign);
     }
 
-    if(a.m.exponent == 0)
+    if(IS_ZERO(a))
         return float16_zero(0);
 
-    unsigned short m1 = a.m.fraction | 1024;
-    unsigned short m2 = b.m.fraction | 1024;
-    uint32_t v=(unsigned)m1 << 10;
-#ifdef F16_ROUND        
-    v= (v + (m2>>1)) / m2;
-#else
-    v= v / m2;
-#endif    
+    unsigned short m1 = MANTISSA(a);
+    unsigned short m2 = MANTISSA(b);
+#define DIV_SHIFT 3
+    uint32_t v=(unsigned)m1 << (10 + DIV_SHIFT);
+    v= (v  + (m2>>1)) / m2;
     
-    int new_exp = a.m.exponent - b.m.exponent + 15;
+    int ax = a.m.exponent;
+    int bx = b.m.exponent;
+    ax += (ax==0);
+    bx += (bx==0);
+    int new_exp = ax - bx + 15 ;
+//  printf("ax=%d(%d) bx=%d(%d) m1=%d m2=%d new_exp=%d v=%d\n",ax,a.m.exponent,bx,b.m.exponent,m1,m2,new_exp,v);
 
-    
-    if(!(v & 1024)) {
+
+    if(v == 0)
+        return float16_zero(sign);
+
+    while(v < (1024<<DIV_SHIFT) && new_exp > 0) {
         v<<=1;
         new_exp--;
     }
+    while(v > (2048<<DIV_SHIFT)) {
+        v>>=1;
+        new_exp++;
+    }
+  //printf("v=%d exp=%d\n",v,new_exp);
+    
     if(new_exp <= 0) {
-        return float16_zero(res.m.sign);
+        v>>=(-new_exp + 1);
+        new_exp = 0;
     }
-    if(new_exp >= 31) {
-        return float16_inf(res.m.sign);
+    else if(new_exp >= 31) {
+        return float16_inf(sign);
     }
+    v>>=DIV_SHIFT;
+    float16_t res;
+    res.m.sign = sign;
     res.m.fraction = v & 1023;
     res.m.exponent = new_exp;
     return res;
@@ -280,14 +272,14 @@ static float16_t int_to_float16(short v)
 
 int float16_eq(float16_t a, float16_t b)
 {
-    if(a.m.exponent == 0 && b.m.exponent == 0)
+    if(IS_ZERO(a) && IS_ZERO(b))
         return 1;
     return a.m.value == b.m.value;
 }
 
 int float16_gt(float16_t a, float16_t b)
 {
-    if(a.m.exponent == 0 && b.m.exponent == 0)
+    if(IS_ZERO(a) && IS_ZERO(b))
         return 0;
     if(a.m.sign == 0) {
         if(b.m.sign == 1)
@@ -303,7 +295,7 @@ int float16_gt(float16_t a, float16_t b)
 
 int float16_gte(float16_t a, float16_t b)
 {
-    if(a.m.exponent == 0 && b.m.exponent == 0)
+    if(IS_ZERO(a) && IS_ZERO(b))
         return 1;
     if(a.m.sign == 0) {
         if(b.m.sign == 1)

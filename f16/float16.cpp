@@ -25,21 +25,16 @@ float16_t float32_to_float16(float v)
 {
     Float32 tmp;
     tmp.m.fvalue = v;
+    tmp.m.value &= ~(unsigned)((1<<13)-1);
     int new_exp = tmp.m.exponent - 127 + 15;
-    if(new_exp <= 0)
-        return float16_zero(tmp.m.sign);
     if(new_exp >=31)
         return float16_inf(tmp.m.sign);
+    __m128 iv;
+    memset(&iv,0,sizeof(iv));
+    memcpy(&iv,&v,4);
+    __m128i resv = _mm_cvtps_ph(iv,_MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
     float16_t res;
-    res.m.sign = tmp.m.sign;
-    res.m.exponent = new_exp;
-    res.m.fraction = tmp.m.fraction >> 13;
-    //__m128 iv;
-    //memset(&iv,0,sizeof(iv));
-    //memcpy(&iv,&v,4);
-    //__m128i resv = _mm_cvtps_ph(iv,_MM_FROUND_TO_ZERO |_MM_FROUND_NO_EXC);
-    //float16_t res;
-    //memcpy(&res,&resv,2);
+    memcpy(&res,&resv,2);
     return res;
 }
 
@@ -71,8 +66,29 @@ unsigned short randv(unsigned short &lfsr)
     lfsr = (lfsr >> 1) | (bit << 15);
     return lfsr;
 }
+#if 0
+#include "half.hpp"
+float16_t calc(int op,float16_t a,float16_t b)
+{
+    half_float::half v1,v2;
+    memcpy(&v1,&a,2);
+    memcpy(&v2,&b,2);
+    switch(op) {
+    case '+': v1+=v2; break;
+    case '-': v1-=v2; break;
+    case '*': v1*=v2; break;
+    case '/': v1/=v2; break;
+    case '>': v1 = v1 > v2; break;
+    case '=': v1 = v1 == v2; break;
+    case ':': v1 = v1 >= v2; break;
+    }
+    float16_t r;
+    memcpy(&r,&v1,2);
+    return r;
+}
 
-float calc(int op,float16_t a,float16_t b)
+#else
+float16_t calc(int op,float16_t a,float16_t b)
 {
     float v1=float16_to_float32(a);
     float v2=float16_to_float32(b);
@@ -85,66 +101,15 @@ float calc(int op,float16_t a,float16_t b)
     case '=': v1 = v1 == v2; break;
     case ':': v1 = v1 >= v2; break;
     }
-    return float16_to_float32(float32_to_float16(v1));
+    return float32_to_float16(v1);
 }
-
+#endif
 bool force_equal=true;
-
-float16_t float16_abs_next(float16_t r)
-{
-    if(r.m.fraction == 1023) {
-        if(r.m.exponent < 30) {
-            r.m.exponent ++;
-            r.m.fraction = 0;
-        }
-        else {
-            r.m.exponent = 31;
-            r.m.fraction = 0;
-        }
-    }
-    else {
-        r.m.fraction++;
-    }
-    return r;
-}
-
-float16_t float16_abs_prev(float16_t r)
-{
-    if(r.m.fraction == 0) {
-        if(r.m.exponent > 1) {
-            r.m.exponent --;
-            r.m.fraction = 1023;
-        }
-        else {
-            r.m.exponent = 0;
-        }
-    }
-    else {
-        r.m.fraction--;
-    }
-    return r;
-}
-
-float16_t float16_prev(float16_t r)
-{
-    if(r.m.sign)
-        return float16_abs_next(r);
-    else
-        return float16_abs_prev(r);    
-}
-
-float16_t float16_next(float16_t r)
-{
-    if(r.m.sign)
-        return float16_abs_prev(r);
-    else
-        return float16_abs_next(r);    
-}
 
 
 void test_op(char op,float16_t a,float16_t b)
 {
-    float ref = calc(op,a,b);
+    float16_t ref = calc(op,a,b);
     float16_t r = float16_t();
     switch(op) {
     case '+': r=float16_add(a,b); break;
@@ -155,7 +120,7 @@ void test_op(char op,float16_t a,float16_t b)
     case '=': r=int_to_float16(float16_eq(a,b)); break;
     case ':': r=int_to_float16(float16_gte(a,b)); break;
     }
-    
+#if 0    
     unsigned short rx = 0;
     unsigned short ax=a.m.value,bx=b.m.value;
     switch(op) {
@@ -180,43 +145,20 @@ void test_op(char op,float16_t a,float16_t b)
         printf("%s(%d)\n",f16_ftosp(buf,sizeof(buf),rx,8),rx);
         exit(1);
     }
+#endif    
 
     float res = float16_to_float32(r);
-    if(ref != res) {
-        if(force_equal) {
+    if(!float16_eq(r,ref)) {
+        if(force_equal || r.m.sign != ref.m.sign) {
             std::cout << "Failed for " << float16_to_float32(a) << op << float16_to_float32(b)  << " =" <<ref << " != " << res << std::endl;
             return;
         }
-        float16_t b16=r,a16=r;
-        int epsN=5;
-        if(op=='-' || op=='+') {
-            float16_t bb=b;
-            if(op=='-')
-                bb.m.sign ^=1;
-            if(bb.m.sign != a.m.sign) {
-                int ediff = bb.m.exponent - a.m.exponent;
-                if(ediff < 0)
-                    ediff=-ediff;
-                if(ediff == 0)
-                    epsN = 35;
-                else if(ediff == 1)
-                    epsN = 32;
-                //else if(ediff <= 5)
-                //    epsN = 20;
-                //else
-                //    epsN = 10;
-                //epsN=35;
-            }
+
+        int diff = labs((int)(r.m.value & 0x7FFF) - (int)(ref.m.value & 0x7FFF));
+        if(diff > 1) {
+            std::cout << "Failed for "<< float16_to_float32(a)  << "("<< a.m.value<<")" << op << float16_to_float32(b)<<"(" << b.m.value << ")"  << " =" <<ref << " not " << res << " by " << diff << std::endl;
         }
-        for(int i=0;i<epsN;i++) {
-            b16 = float16_prev(b16);
-            a16 = float16_next(a16);
-        }
-        float before = float16_to_float32(b16);
-        float after  = float16_to_float32(a16);
-        if(before <= ref && ref <=after)
-            return;
-        std::cout << "Failed for "<< float16_to_float32(a)  << "("<< a.m.value<<")" << op << float16_to_float32(b)<<"(" << b.m.value << ")"  << " =" <<ref << " not in [" << before << "," << after << "] = res" << res << std::endl;
+        
     }
 }
 
@@ -284,7 +226,7 @@ void test3()
     for(int i=0;i<1000;i++) {
         randv(s1);
         randv(s2);
-        if((s1 & 0x7C00) == 0x7C00 || (s2 & 0x7C00) == 0x7C00 || (s1!=0&& (s1 & 0x7C00) == 0) || (s2!=0 && (s2 & 0x7C00) == 0)) {
+        if((s1 & 0x7C00) == 0x7C00 || (s2 & 0x7C00) == 0x7C00){
             i--;
             continue;
         }
@@ -335,17 +277,27 @@ void test_print(float v)
     float16_t tmp = float32_to_float16(v);
     v=float16_to_float32(tmp);
     float16_format(buf,sizeof(buf),tmp,15);
-    f16_ftosp(buf2,sizeof(buf2),tmp.m.value,15);
-    printf("%f=%s\n",v,buf);
-    assert(strcmp(buf,buf2)==0);
+    //f16_ftosp(buf2,sizeof(buf2),tmp.m.value,15);
+    //printf("%f=%s\n",v,buf);
+    //assert(strcmp(buf,buf2)==0);
 }
 
 int main()
 {
+    //force_equal = false;
+    //return 0;
     test0();
     test1();
     force_equal = false;
+    test(8200,8145);
+    test(7915,7927);
+    test(10958,466);
+    test(38629,40509);
+    test(38591,62587);
     test(22696,7903);
+    test(9184,7903);
+    test(62945,33282);
+    test(32959,37477);
     test(9184,7903);
     test2();
     test3();
