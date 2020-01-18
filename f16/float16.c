@@ -5,20 +5,48 @@
 #define SIGN_MASK 0x8000
 #define EXP_MASK 0x7C00
 #define NAN_VALUE 0x7FFF
-#define IS_ZERO(x) (((x) & EXP_MASK) == 0)
+#define IS_ZERO(x) (((x) & 0x7FFF) == 0)
 #define IS_INVALID(x) (((x) & EXP_MASK) == EXP_MASK)
-#define MANTISSA(x) (((x) & 1023) | 1024)
+#define IS_INF(x) ( ((x) & 0x7FFF) == 0x7C00)
+#define MANTISSA(x) (((x) & 1023) | (((x) & 0x7C00) == 0 ? 0 : 1024))
 #define EXPONENT(x) (((x) & 0x7C00) >> 10)
 #define SIGNED_INF_VALUE(x)  ((x & SIGN_MASK) | 0x7C00)
+/*extern void fadd_hl_de();
+extern void fsub_hl_de();
+short f16_add(short a,short b)
+{
+    __asm
+        ld l,(ix+4)
+        ld h,(ix+5)
+        ld e,(ix+6)
+        ld d,(ix+7)
+        call _fadd_hl_de
+    __endasm;
+}
+
+short f16_sub(short a,short b)
+{
+    __asm
+        ld l,(ix+4)
+        ld h,(ix+5)
+        ld e,(ix+6)
+        ld d,(ix+7)
+        call _fsub_hl_de
+    __endasm;
+}
+*/
+
+#ifdef __linux
 
 short f16_add(short a,short b)
 {
-    if(((a ^ b) & SIGN_MASK) == SIGN_MASK) {
-        b^=0x8000;
-        return f16_sub(a,b);
-    }
-    if(IS_ZERO(a))
+    int op_add = ((a ^ b) & SIGN_MASK) == 0;
+    unsigned short sign = a & SIGN_MASK;
+    if(IS_ZERO(a)) {
+        if(IS_ZERO(b))
+            return 0;
         return b;
+    }
     if(IS_ZERO(b))
         return a;
     if(IS_INVALID(a) || IS_INVALID(b))
@@ -28,134 +56,113 @@ short f16_add(short a,short b)
         short x=a;
         a=b;
         b=x;
+        if(!op_add)
+            sign ^= SIGN_MASK;
     }
     unsigned short m1 = MANTISSA(a);
     unsigned short m2 = MANTISSA(b);
     int ax = EXPONENT(a);
     int bx = EXPONENT(b);
+    int exp = ax;
+
+    ax += (ax==0);
+    bx += (bx==0);
+
     unsigned short diff = ax - bx;
-    if(diff > 0) {
-#ifdef F16_ROUND
-        m2 >>= diff-1;
-        m2++;
-        m2 >>= 1;
-#else
-        m2>>=diff;
-#endif
-    }
-    m1 += m2;
-    if(m1 & 2048) {
-        m1>>=1;
-        ax++;
-        if(ax == 31) {
-            return SIGNED_INF_VALUE(a);
+
+    //printf("ax=%d(%d) bx=%d(%d) m1=%d m2=%d diff=%d\n",ax,a.m.exponent,bx,b.m.exponent,m1,m2,diff);
+
+    if(op_add) {
+        if(diff > 0) {
+            m2>>=diff;
+        }
+        m1 += m2;
+        if(m1 & 2048) {
+            m1 >>= 1;
+            exp++;
         }
     }
-    a = (a & SIGN_MASK) | (ax << 10) | (m1 & 1023);
+    else {
+#define DIFF_SHIFT 1
+        m1<<=DIFF_SHIFT;
+        m2<<=DIFF_SHIFT;
+        if(diff > 0) {
+            m2>>=diff;
+        }
+        m1 -= m2;
+        while(exp > 0 && !(m1 & (1024<<DIFF_SHIFT))) { // for shift 3
+            m1<<=1;
+            exp--;
+        }
+        if(exp == 0)
+            m1>>=1 + DIFF_SHIFT;
+        else
+            m1>>=DIFF_SHIFT;
+    }
+    if(exp >= 31)
+        return SIGNED_INF_VALUE(sign);
+    
+    a = sign | (exp << 10) | (m1 & 1023);
     return a;
 }
 short f16_sub(short a,short b)
 {
-    if(IS_ZERO(a)) 
-        return b ^ SIGN_MASK;
-    if(IS_ZERO(b))
-        return a;
-
-    if(IS_INVALID(a) || IS_INVALID(b))
-        return NAN_VALUE;
-
-    if(((a ^ b) & SIGN_MASK)==SIGN_MASK) {
-        b^=SIGN_MASK;
-        return f16_add(a,b);
-    };
-
-    if((a & 0x7FFF) < (b & 0x7FFF)) {
-        short x=a;
-        a=b;
-        b=x;
-        a^= SIGN_MASK;
-    }
-    
-    int ax = EXPONENT(a);
-    int bx = EXPONENT(b); 
-    unsigned ediff = ax - bx;
-    unsigned m1 = MANTISSA(a);
-    unsigned m2 = MANTISSA(b);
-    if(ediff) {
-#ifdef F16_ROUND        
-        m2 >>= ediff-1;
-        m2++;
-        m2 >>=1;
-#else
-        m2 >>= ediff;
-#endif        
-    }
-    m1 -= m2;
-    if(m1 != 0) {
-        int new_exp = ax;
-        while(!(m1 & 1024)) {
-            new_exp --;
-            m1 <<= 1;
-        }
-        if(new_exp <= 0)
-            return 0;
-        a = (a & SIGN_MASK) | (m1 & 1023) | (new_exp << 10);
-        return a;
-    }
-    return 0;
+    return f16_add(a,b^SIGN_MASK);
 }
+
+#endif
 short f16_mul(short a,short b)
 {
-    short res = (a ^ b) & SIGN_MASK;
+    int sign = (a ^ b) & SIGN_MASK;
 
     if(IS_INVALID(a) || IS_INVALID(b))
         return NAN_VALUE;
 
     if(IS_ZERO(a) || IS_ZERO(b))
         return 0;
-
     unsigned short m1 = MANTISSA(a);
     unsigned short m2 = MANTISSA(b);
+
     uint32_t v=m1;
     v*=m2;
-    int new_exp = EXPONENT(a) + EXPONENT(b) - 15;
+    int ax = EXPONENT(a);
+    int bx = EXPONENT(b);
+    ax += (ax==0);
+    bx += (bx==0);
+    int new_exp = ax + bx - 15;
     
     if(v & ((uint32_t)1<<21)) {
-#ifdef F16_ROUND
-        v+= 1024;
-#endif        
         v >>= 11;
         new_exp++;
     }
-    else {
-#ifdef F16_ROUND        
-        v+=512;
-#endif        
+    else if(v & ((uint32_t)1<<20)) {
         v >>= 10;
     }
-
-#ifdef F16_ROUND        
-    if(v & 2048) {
-        v >>= 1;
-        new_exp++;
+    else { // denormal
+        new_exp -= 10;
+        while(v >= 2048) {
+            v>>=1;
+            new_exp++;
+        }
     }
-#endif    
     if(new_exp <= 0) {
-        return 0;
+        v>>=(-new_exp + 1);
+        new_exp = 0;
     }
-    if(new_exp >= 31) {
-        return SIGNED_INF_VALUE(res);
+    else if(new_exp >= 31) {
+        return SIGNED_INF_VALUE(sign);
     }
-    return (res & SIGN_MASK) | (new_exp << 10) | (v & 1023);
+    return (sign) | (new_exp << 10) | (v & 1023);
 }
 
 short f16_div(short a,short b)
 {
-    short res = (a ^ b) & SIGN_MASK;
-    if(IS_INVALID(a) || IS_INVALID(b))
+    short sign = (a ^ b) & SIGN_MASK;
+    if(IS_INVALID(a) || IS_INVALID(b) || (IS_ZERO(a) && IS_ZERO(b)))
         return NAN_VALUE;
-    if(IS_ZERO(b)) {
-        return SIGNED_INF_VALUE(res);
+
+    if(IS_ZERO(b) ) {
+        return SIGNED_INF_VALUE(sign);
     }
 
     if(IS_ZERO(a))
@@ -163,28 +170,37 @@ short f16_div(short a,short b)
 
     unsigned short m1 = MANTISSA(a);
     unsigned short m2 = MANTISSA(b);
-    uint32_t v=m1;
-    v<<=10;
-#ifdef F16_ROUND        
-    v= (v + (m2>>1)) / m2;
-#else
-    v= v / m2;
-#endif    
+#define DIV_SHIFT 3
+    uint32_t v=(uint32_t)m1 << (10 + DIV_SHIFT);
+    v= (v  + (m2>>1)) / m2;
     
-    int new_exp = EXPONENT(a) - EXPONENT(b) + 15;
+    int ax = EXPONENT(a);
+    int bx = EXPONENT(b);
+    ax += (ax==0);
+    bx += (bx==0);
+    int new_exp = ax - bx + 15 ;
 
-    
-    if(!(v & 1024)) {
+    if(v == 0)
+        return 0;
+
+    while(v < (1024<<DIV_SHIFT) && new_exp > 0) {
         v<<=1;
         new_exp--;
     }
+    while(v > (2048<<DIV_SHIFT)) {
+        v>>=1;
+        new_exp++;
+    }
+    
     if(new_exp <= 0) {
-        return 0;
+        v>>=(-new_exp + 1);
+        new_exp = 0;
     }
-    if(new_exp >= 31) {
-        return SIGNED_INF_VALUE(res);
+    else if(new_exp >= 31) {
+        return SIGNED_INF_VALUE(sign);
     }
-    return res | (v & 1023) | (new_exp << 10);
+    v>>=DIV_SHIFT;
+    return sign | (v & 1023) | (new_exp << 10);
 }
 
 short f16_neg(short v)

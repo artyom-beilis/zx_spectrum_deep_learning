@@ -50,6 +50,8 @@ static float16_t float16_neg(float16_t v)
 
 #define IS_ZERO(v) (((v).m.value & 0x7FFF) == 0)
 #define IS_INVALID(v) ((v).m.exponent == 31)
+#define IS_INF(v) (((v).m.value & 0x7FFF) == 0x7c00)
+#define IS_NAN(v) ((v).m.exponent == 31 && (v).m.fraction != 0)
 #define MANTISSA(v) ((v).m.exponent == 0 ? ((v).m.fraction) :( 1024 | (v).m.fraction))
 
 static float16_t float16_sub(float16_t a,float16_t b);
@@ -57,11 +59,21 @@ static float16_t float16_add(float16_t a,float16_t b);
 
 static float16_t float16_add(float16_t a,float16_t b)
 {
-    if(IS_INVALID(a) || IS_INVALID(b))
-        return float16_nan();
-
     int op_add = a.m.sign == b.m.sign;
     int sign = a.m.sign;
+    if(IS_INVALID(a) || IS_INVALID(b)) {
+        if((IS_NAN(a) || IS_NAN(b)))
+            return float16_nan();
+        if(IS_INF(a) && !IS_INVALID(b))
+            return a;
+        if(IS_INF(b) && !IS_INVALID(a))
+            return b;
+        if(op_add)
+            return float16_inf(a.m.sign);
+        else
+            return float16_nan();
+    }
+
     if((0x7FFF & a.m.value) < (0x7FFF & b.m.value)) {
         float16_t x=a;
         a=b;
@@ -126,10 +138,17 @@ static float16_t float16_sub(float16_t a,float16_t b)
 
 static float16_t float16_mul(float16_t a,float16_t b)
 {
-    if(IS_INVALID(a) || IS_INVALID(b))
-        return float16_nan();
-
     int sign = a.m.sign ^ b.m.sign;
+    if(IS_INVALID(a) || IS_INVALID(b)) {
+        if(IS_NAN(a) || IS_NAN(b))
+            return float16_nan();
+        if(IS_INF(a) && IS_ZERO(b))
+            return float16_nan();
+        if(IS_INF(b) && IS_ZERO(a))
+            return float16_nan();
+        return float16_inf(sign);
+    }
+
 
     unsigned short m1 = MANTISSA(a);
     unsigned short m2 = MANTISSA(b);

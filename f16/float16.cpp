@@ -120,7 +120,7 @@ void test_op(char op,float16_t a,float16_t b)
     case '=': r=int_to_float16(float16_eq(a,b)); break;
     case ':': r=int_to_float16(float16_gte(a,b)); break;
     }
-#if 0    
+#if 1    
     unsigned short rx = 0;
     unsigned short ax=a.m.value,bx=b.m.value;
     switch(op) {
@@ -277,9 +277,9 @@ void test_print(float v)
     float16_t tmp = float32_to_float16(v);
     v=float16_to_float32(tmp);
     float16_format(buf,sizeof(buf),tmp,15);
-    //f16_ftosp(buf2,sizeof(buf2),tmp.m.value,15);
-    //printf("%f=%s\n",v,buf);
-    //assert(strcmp(buf,buf2)==0);
+    f16_ftosp(buf2,sizeof(buf2),tmp.m.value,15);
+    printf("%f=%s\n",v,buf);
+    assert(strcmp(buf,buf2)==0);
 }
 
 int main()
