@@ -72,39 +72,9 @@ fadd_entry_after_stack_prepare:
     xor (ix+sign)
     ld (ix+sign),a
 no_swap:
-    ld a,d
-    and 0x7C
-    ld c,a     ; c=exp(A)<<2
-    ld a,3      ; B = B & 1023
-    and d
-    ld d,a
-    set 2,d     ; B = B | 1024
-    ld a,c
-    rra
-    rra         ; a=exp(A)
-    and a               ; if EXPONENT(B) == 0 a=1
-    jr nz,dont_inc_ax
-    res 2,d             ; reset 1024 bit for subnormal
-    inc a               ; de = mantissa(B),
-dont_inc_ax:
-    ld b,a              ; de = mantissa(B), b=exponent + (1 if B subnormal)
-    ld a,h
-    and 0x7C
-    ld c,a
-    ld a,3
-    and h
-    ld h,a
-    set 2,h
-    ld a,c
-    rra
-    rra
-    ld (ix+exp),a          ; exp = EXP(A)
-    and a
-    jr nz,dont_inc_bx
-    inc a
-    res 2,h
-dont_inc_bx:
-    sub b               ; b=ax - bx
+    call calc_ax_bx_mantissa_on_abs
+    ld (ix+exp),c          ; exp = EXP(A)
+    sub b                  ; b=ax - bx
     ld b,a
     ld a,(ix+op_sub)       ; if op_sub - go to substr
     and a
@@ -209,7 +179,154 @@ check_invalid:
     ret
 
      
-;op_sub: defb 0
-;sign  : defb 0
-;exp   : defb 0
+_fmul_hl_de:
+    push ix
+    ld ix,0
+    add ix,sp
+fmul_entry_after_stack_prepare:
+    push af
+    push af
+    call check_invalid
+    jp z,return_nan
+    ld a,h
+    xor d
+    and 0x80
+    ld (ix + sign),a  ; sign = sig(A) ^ sig(B)
+    call calc_ax_bx_mantissa
+    add b   ; new_exp = ax + bx - 15
+    sub 15
+    ld (ix+exp),a 
+    ld a,h
+    or l
+    jr z,fmul_exit
+    ex de,hl
+    ld a,h
+    or l
+    jr z,fmul_exit
+    call mpl_11_bit  ; de/hl = m1*m2
+    ld a,(ix+exp)
+    bit 5,e
+    jr nz,fmul_exp_inc_shift_10
+    bit 4,e
+    jr nz,fmul_shift_10
+    jr fmul_handle_denormals
+fmul_exp_inc_shift_10:
+    inc a
+    sra e
+    rr h
+    rr l
+fmul_shift_10:
+    sra e
+    rr h
+    rr l
+    sra e
+    rr h
+    rr l
+    ld l,h
+    ld h,e
+    jr fmul_check_exponend
+fmul_handle_denormals:
+    sub a,10
+    ld c,a
+    ld b,0xf8
+fmul_next_shift:
+    ld a,h
+    and b
+    or e
+    jr z,fmul_shift_loop_end
+    sra e
+    rr h
+    rr l
+    inc c
+    jr fmul_next_shift
+fmul_shift_loop_end:
+    ld a,c      ; restre exp
+fmul_check_exponend:
+    ; TBD 
+
+
+
+    
+fmul_exit:
+    pop af
+    pop af
+    pop ix
+    ret
+
+    ; input hl,de
+    ; output 
+    ;   a=ax = max(exp(hl),1)
+    ;   b=bx = max(exp(de),1)
+    ;   c = exp(hl)
+    ;   hl = mantissa(hl)
+    ;   de = mantissa(de)
+
+
+calc_ax_bx_mantissa:
+    res 7,h
+    res 7,d
+calc_ax_bx_mantissa_on_abs:
+    ld a,d
+    and 0x7c
+    jr z,bx_is_zero
+    rra  
+    rra 
+    ld b,a ; b=bx
+    ld a,3
+    and d      ; keep bits 0,1, set 2
+    or 4      
+    ld d,a     ; de = mantissa
+    jr bx_not_zero 
+bx_is_zero:
+    ld b,1 ; de is already ok since exp=0, bit 7 reset
+bx_not_zero:
+    ; b is bx, de=mantissa(de)
+    ld a,h
+    and 0x7c
+    jr z,ax_is_zero 
+    rra
+    rra 
+    ld c,a  ; c=exp
+    ld a,3
+    and h
+    or 4
+    ld h,a
+    ld a,c ; exp=ax
+    ret
+ax_is_zero:
+    ld a,1 ; hl is already ok a=ax
+    ld c,0 ; c=exp(hl)
+    ret 
+
+
+mpl_11_bit:
+    ld c,l
+    ld b,h
+    ex de,hl
+    add hl,hl   ; make sure msb is the first relevant bit
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    ex de,hl
+    ld  hl,0
+    sla	e		; optimised 1st iteration
+	rl	d
+	jr	nc,mpl_loop_start
+	ld	h,b
+	ld	l,c
+mpl_loop_start:
+	ld	a,10
+mpl_lp:
+	add	hl,hl  ; 
+	rl	e	   ; carry goes to de low bit
+	rl	d	   ;
+	jr	nc,mpl_end	
+	add	hl,bc		    
+	jr	nc,mpl_end
+	inc	de		; ...
+mpl_end:
+    dec a
+    jr NZ,mpl_lp
+    ret
 

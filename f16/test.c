@@ -57,8 +57,6 @@ extern short f16_add2(short,short);
 int main()
 {
     int i,j,v,vref;
-    //test(58002,25182,52864);
-    //return 0;
     printf("Int  \n");
     for(i=-15;i<15;i++) {
         for(j=-15;j<15;j++) {
