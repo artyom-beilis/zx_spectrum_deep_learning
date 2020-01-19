@@ -53,7 +53,7 @@ static int fix_sign(int r)
 }
 
 extern short f16_add2(short,short);
-
+extern short f16_mul2(short,short);
 int main()
 {
     int i,j,v,vref;
@@ -64,6 +64,12 @@ int main()
             vref = f16_from_int(i+j);
             if(v!=vref) {
                 printf("%d + %d -> %x != %x\n",i,j,v,vref);
+                return 1;
+            }
+            v=f16_mul(f16_from_int(i),f16_from_int(j));
+            vref = f16_from_int(i*j);
+            if(v!=vref) {
+                printf("%d * %d -> %x != %x\n",i,j,v,vref);
                 return 1;
             }
         }

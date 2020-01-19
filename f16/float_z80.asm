@@ -1,7 +1,9 @@
 GLOBAL _fadd_hl_de
 GLOBAL _fsub_hl_de
+GLOBAL _fmul_hl_de
 GLOBAL _f16_add
 GLOBAL _f16_sub
+GLOBAL _f16_mul
 ; calc fp16 A-B 
 ; input A hl, B de
 ; result A-B hl
@@ -178,11 +180,21 @@ check_invalid:
     cp c
     ret
 
+_f16_mul:
+    push ix
+    ld ix,0
+    add ix,sp
+ 	ld	l,(ix+4)
+	ld	h,(ix+5)
+	ld	e,(ix+6)
+	ld	d,(ix+7)
+    jr fmul_entry_after_stack_prepare
      
 _fmul_hl_de:
     push ix
     ld ix,0
     add ix,sp
+
 fmul_entry_after_stack_prepare:
     push af
     push af
@@ -198,19 +210,19 @@ fmul_entry_after_stack_prepare:
     ld (ix+exp),a 
     ld a,h
     or l
-    jr z,fmul_exit
+    jp z,exit_point
     ex de,hl
     ld a,h
     or l
-    jr z,fmul_exit
+    jp z,exit_point
     call mpl_11_bit  ; de/hl = m1*m2
     ld a,(ix+exp)
-    bit 5,e
-    jr nz,fmul_exp_inc_shift_10
+    bit 5,e                      ; if v >=2048: m>>11, exp++
+    jr nz,fmul_exp_inc_shift_11
     bit 4,e
-    jr nz,fmul_shift_10
-    jr fmul_handle_denormals
-fmul_exp_inc_shift_10:
+    jr nz,fmul_shift_10         ; if v>=1024: m>>10
+    jr fmul_handle_denormals    ; check denormals
+fmul_exp_inc_shift_11:
     inc a
     sra e
     rr h
@@ -222,36 +234,43 @@ fmul_shift_10:
     sra e
     rr h
     rr l
-    ld l,h
+    ld l,h ; ehl >> 8
     ld h,e
-    jr fmul_check_exponend
+    ld e,0
+    jr fmul_check_exponent
 fmul_handle_denormals:
     sub a,10
     ld c,a
     ld b,0xf8
-fmul_next_shift:
+fmul_next_shift:    ; while ehl >= 2048
     ld a,h
     and b
     or e
     jr z,fmul_shift_loop_end
-    sra e
+    sra e           ; ehl >> = 1, exp++
     rr h
     rr l
     inc c
     jr fmul_next_shift
 fmul_shift_loop_end:
     ld a,c      ; restre exp
-fmul_check_exponend:
-    ; TBD 
-
-
-
+fmul_check_exponent:
+    ld b,1
+    and a
+    jr z,fmul_denorm_shift
+    bit 7,a
+    jp z,final_combine
+    neg 
+    add a,b
+    ld b,a
+    xor a
+fmul_denorm_shift:
+    sra e
+    rr h
+    rr l
+    djnz fmul_denorm_shift
+    jp final_combine
     
-fmul_exit:
-    pop af
-    pop af
-    pop ix
-    ret
 
     ; input hl,de
     ; output 

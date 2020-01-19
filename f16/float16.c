@@ -39,6 +39,7 @@ short f16_sub(short a,short b)
 #ifndef __linux 
 #define f16_add f16_add2
 #define f16_sub f16_sub2
+#define f16_mul f16_mul2
 #endif
 
 short f16_add(short a,short b)

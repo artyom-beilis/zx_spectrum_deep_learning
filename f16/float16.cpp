@@ -132,7 +132,7 @@ void test_op(char op,float16_t a,float16_t b)
     case '=': rx=f16_from_int(f16_eq(ax,bx)); break;
     case ':': rx=f16_from_int(f16_gte(ax,bx)); break;
     }
-    if(0 && rand() % 1000 == 0) {
+    if(rand() % 1000 == 0) {
         std::ofstream tmps("/tmp/samples.txt",std::ofstream::app);
         tmps << "{'"<<op<<"'," <<ax<<","<<bx<<","<<rx<<"},"<<std::endl;
     }
