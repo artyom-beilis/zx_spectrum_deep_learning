@@ -36,7 +36,10 @@ short f16_sub(short a,short b)
 }
 */
 
-#ifdef __linux
+#ifndef __linux 
+#define f16_add f16_add2
+#define f16_sub f16_sub2
+#endif
 
 short f16_add(short a,short b)
 {
@@ -81,6 +84,8 @@ short f16_add(short a,short b)
             m1 >>= 1;
             exp++;
         }
+        if(exp == 0 && (m1 & 1024))
+            exp=1;
     }
     else {
 #define DIFF_SHIFT 1
@@ -91,13 +96,11 @@ short f16_add(short a,short b)
         }
         m1 -= m2;
         while(exp > 0 && !(m1 & (1024<<DIFF_SHIFT))) { // for shift 3
-            m1<<=1;
             exp--;
+            if(exp!=0)
+                m1<<=1;
         }
-        if(exp == 0)
-            m1>>=1 + DIFF_SHIFT;
-        else
-            m1>>=DIFF_SHIFT;
+        m1>>=DIFF_SHIFT;
     }
     if(exp >= 31)
         return SIGNED_INF_VALUE(sign);
@@ -110,7 +113,6 @@ short f16_sub(short a,short b)
     return f16_add(a,b^SIGN_MASK);
 }
 
-#endif
 short f16_mul(short a,short b)
 {
     int sign = (a ^ b) & SIGN_MASK;

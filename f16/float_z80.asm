@@ -7,71 +7,57 @@ GLOBAL _f16_sub
 ; result A-B hl
 
 
+op_sub  equ -2
+sign    equ -3
+exp     equ -4
+
+
+
 SECTION code_compiler
 
-_f16_add:
-    push ix
-    ld ix,0
-    add ix,sp
-	ld	l,(ix+4)
-	ld	h,(ix+5)
-	ld	e,(ix+6)
-	ld	d,(ix+7)
-    call _fadd_hl_de
-    pop ix
-    ret
 
 _f16_sub:
     push ix
     ld ix,0
     add ix,sp
-	ld	l,(ix+4)
+ 	ld	l,(ix+4)
+	ld	h,(ix+5)
+	ld	e,(ix+6)
+    ld a,0x80
+	xor (ix+7)
+    ld d,a
+    jr fadd_entry_after_stack_prepare
+
+_f16_add:
+    push ix
+    ld ix,0
+    add ix,sp
+ 	ld	l,(ix+4)
 	ld	h,(ix+5)
 	ld	e,(ix+6)
 	ld	d,(ix+7)
-    call _fsub_hl_de
-    pop ix
-    ret
-
-
+    jr fadd_entry_after_stack_prepare
 
 _fsub_hl_de:
-    ld a,d      ; if B==0 return A
-    and 0x7f
-    or e
-    ret z
-    ld a,d      ; B=-B
-    xor 0x80    
-    ld d,a      ; continue to A+B
+    and a,0x80
+    xor d
+    ld d,a
+
 _fadd_hl_de:
+    push ix
+    ld ix,0
+    add ix,sp
+fadd_entry_after_stack_prepare:
+    push af
+    push af
+    call check_invalid
+    jp z,return_nan
     ld a,h
     and 0x80
-    ld (sign),a  ; store sign(A)
+    ld (ix + sign),a  ; store sign(A)
     xor d
     and 0x80
-    ld (op_sub),a   ; op_sub = sign(A) ^ sign(B)
-    ;  handle zeros
-    ld a,h          ; if A==0 return B
-    and 0x7F
-    or l
-    jr nz,hl_not_zero
-    ex de,hl
-    ret
-hl_not_zero:        ; if B == 0 return A
-    ld a,d
-    and 0x7f
-    or e
-    ret z
-    ; handle invalids
-    ld c,0x7C       ; if exp(A) == 31 goto return nan
-    ld a,h
-    and c
-    cp c
-    jp z,return_nan
-    ld a,d          ; if exp(B) == 31 goto return nan
-    and c
-    cp c
-    jp z,return_nan
+    ld (ix + op_sub),a   ; op_sub = sign(A) ^ sign(B)
 
     res 7,h         ; we don't keep sing any more
     res 7,d         ; A=abs(A) , B=abs(B)
@@ -82,11 +68,9 @@ hl_not_zero:        ; if B == 0 return A
     sbc d
     jr nc,no_swap
     ex de,hl        ; swap(A,B)
-    ld a,(op_sub)   ; if op_sub -> sign = -sign
-    ld c,a
-    ld a,(sign)
-    xor c
-    ld (sign),a
+    ld a,(ix+op_sub)   ; if op_sub -> sign = -sign
+    xor (ix+sign)
+    ld (ix+sign),a
 no_swap:
     ld a,d
     and 0x7C
@@ -114,7 +98,7 @@ dont_inc_ax:
     ld a,c
     rra
     rra
-    ld (exp),a          ; exp = EXP(A)
+    ld (ix+exp),a          ; exp = EXP(A)
     and a
     jr nz,dont_inc_bx
     inc a
@@ -122,7 +106,7 @@ dont_inc_ax:
 dont_inc_bx:
     sub b               ; b=ax - bx
     ld b,a
-    ld a,(op_sub)       ; if op_sub - go to substr
+    ld a,(ix+op_sub)       ; if op_sub - go to substr
     and a
     jr nz,substruction
     ld a,b              ; if ax - bx == 0 no shoft
@@ -134,13 +118,21 @@ shift_de_add:
     djnz shift_de_add    ; de>> b
 no_diff_add:
     add hl,de           ; hl = m1+m2
-    ld a,(exp)          ; 
+    ld a,(ix+exp)          ; 
     bit 3,h             ; hl & 2048 exp++, hl >>=1
-    jr z,final_combine
+    jr z,fix_subnormal_add_exp
     inc a
     sra h
     rr l
     jr final_combine
+fix_subnormal_add_exp:  ; if exp==0 and hl & 1024 exp++
+    and a
+    jr nz,final_combine
+    bit 2,h
+    jr z,final_combine
+    inc a
+    jr final_combine
+    
 substruction:
     add hl,hl   ; m1<<=1, m2<<=1
     ex de,hl
@@ -161,49 +153,63 @@ no_diff_sub:
     sbc d   ; m1 = m1-m2
     ld h,a
     or l
-    ret z ; if diff = 0 return 0
-    ld a,(exp)              ; while exp > 0 and bit 2048 not set
+    jp z,exit_point ; if diff = 0 return 0
+    ld a,(ix+exp)              ; while exp > 0 and bit 2048 not set
 next_shift_sub:
     bit 3,h
     jr nz,sub_shift_done
     and a,a
     jr z,sub_shift_done
-    add hl,hl                   ; m1<<1, exp--
-    dec a
+    dec a                       ; exp --
+    jr z,sub_shift_done         ; if exp==0 break
+    add hl,hl                   ; m1<<=1
     jr next_shift_sub       ; end while
 sub_shift_done:
-    and a                 ;if exp == 0 m1 >>= 2 else m1 >>= 1
-    jr nz,shift_once
-    sra h
-    rr l
-shift_once:
-    sra h
+    sra h   ; m1>>=1
     rr l
 final_combine:              
     cp 31
     jr nc, return_inf
     add a
     add a 
-    ld b,a
-    ld a,(sign)
-    or b
+    or a,(ix+sign)
     res 2,h ; remove hidden bit
     or h
     ld h,a
+    or 0x7F         ; reset -0 to normal 0
+    or l
+    jr nz,exit_point
+    ld hl,0
+exit_point:
+    pop af
+    pop af
+    pop ix
     ret
   
 return_inf:
-    ld a,(sign)
+    ld a,(ix+sign)
     or 0x7C
     ld h,a
     ld l,0
-    ret
-    
+    jr exit_point
 return_nan:
     ld hl,0x7FFF
+    jr exit_point
+
+check_invalid:
+    ; check if hl or de is inf/nan, returns flag z if is invalid
+    ld c,0x7C       ; if exp(A) == 31 goto return nan
+    ld a,h
+    and c
+    cp c
+    ret z
+    ld a,d          ; if exp(B) == 31 goto return nan
+    and c
+    cp c
     ret
+
      
-op_sub: defb 0
-sign  : defb 0
-exp   : defb 0
+;op_sub: defb 0
+;sign  : defb 0
+;exp   : defb 0
 

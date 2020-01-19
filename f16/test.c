@@ -24,7 +24,7 @@ int test_op(int n)
     case '=': rx=f16_from_int(f16_eq(ax,bx)); break;
     case ':': rx=f16_from_int(f16_gte(ax,bx)); break;
     }
-    if(f16_neq(rx,r)) {
+    if(rx != r) {
         printf("%s %c ",f16_ftos(ax),op);
         printf("%s = ",f16_ftos(bx));
         printf("%s != ",f16_ftos(r));
@@ -44,12 +44,23 @@ void test(int a,int b,int exp)
     test_op(0);
 }
 
+static int fix_sign(int r)
+{
+    if(r<0) {
+        r=-r | 0x8000;
+    }
+    return r;
+}
+
+extern short f16_add2(short,short);
+
 int main()
 {
     int i,j,v,vref;
     //test(58002,25182,52864);
     //return 0;
-/*    for(i=-15;i<15;i++) {
+    printf("Int  \n");
+    for(i=-15;i<15;i++) {
         for(j=-15;j<15;j++) {
             v=f16_add(f16_from_int(i),f16_from_int(j));
             vref = f16_from_int(i+j);
@@ -59,15 +70,36 @@ int main()
             }
         }
     }
-    for(i=0;i<0x7C00;i++) {
-        for(j=0;j<0x7C00;j++) {
-            test(i,j,f16_add2(i,j));
-            test(i | 0x8000,j,f16_add2(i | 0x8000,j));
-            test(i | 0x8000,j | 0x8000,f16_add2(i | 0x8000,j | 0x8000));
-            test(i,j | 0x8000,f16_add2(i,j | 0x8000));
+    printf("Subnormals\n");
+    for(i=-2047;i<2048;) {
+        for(j=-2047;j<2048;) {
+            short si=fix_sign(i),sj=fix_sign(j);
+            if(-2048 < i+j && i+j < 2048 && (vref=fix_sign(i+j)) != (v=f16_add(si,sj))) {
+                printf("%d+%d=%d \n",i,j,i+j);
+                printf("%x+%x=%x!=%x fail\n",i,j,vref,v);
+                printf("old = %x",f16_add2(si,sj));
+                return 1;
+            }
+            if(-2048 < i-j && i - j < 2048 && (vref=fix_sign(i-j)) != (v=f16_sub(si,sj))) {
+                printf("%d-%d=%d \n",i,j,i-j);
+                printf("%x-%x=%x!=%x fail %\n",i,j,vref,v);
+                return 1;
+            }
+            if(j<-1000 || 1000<j)
+                j+=100;
+            else if(j<100 || 100<j)
+                j+=10;
+            else
+                j++;
         }
+        if(i<-1000 || 1000<i)
+            i+=100;
+        else if(i<100 || 100<i)
+            i+=10;
+        else
+            i++;
     }
-    printf("Full DOne\n");*/
+    printf("Start Reg\n");
     for(i=0;i<500;i++) {
         if(!test_op(i))
             return 1;

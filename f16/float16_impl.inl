@@ -102,6 +102,8 @@ static float16_t float16_add(float16_t a,float16_t b)
             m1 >>= 1;
             exp++;
         }
+        if(exp == 0 && (m1 & 1024))
+            exp=1;
     }
     else {
 #define DIFF_SHIFT 1
@@ -112,13 +114,12 @@ static float16_t float16_add(float16_t a,float16_t b)
         }
         m1 -= m2;
         while(exp > 0 && !(m1 & (1024<<DIFF_SHIFT))) { // for shift 3
-            m1<<=1;
             exp--;
+            if(exp == 0)
+                break;
+            m1<<=1;
         }
-        if(exp == 0)
-            m1>>=1 + DIFF_SHIFT;
-        else
-            m1>>=DIFF_SHIFT;
+        m1 >>= DIFF_SHIFT;
         //printf("final M=%d e=%d\n",m1,exp);
     }
     if(exp >= 31)

@@ -66,7 +66,7 @@ unsigned short randv(unsigned short &lfsr)
     lfsr = (lfsr >> 1) | (bit << 15);
     return lfsr;
 }
-#if 0
+#if 1 
 #include "half.hpp"
 float16_t calc(int op,float16_t a,float16_t b)
 {
@@ -132,7 +132,7 @@ void test_op(char op,float16_t a,float16_t b)
     case '=': rx=f16_from_int(f16_eq(ax,bx)); break;
     case ':': rx=f16_from_int(f16_gte(ax,bx)); break;
     }
-    if(rand() % 1000 == 0) {
+    if(0 && rand() % 1000 == 0) {
         std::ofstream tmps("/tmp/samples.txt",std::ofstream::app);
         tmps << "{'"<<op<<"'," <<ax<<","<<bx<<","<<rx<<"},"<<std::endl;
     }
@@ -281,14 +281,51 @@ void test_print(float v)
     printf("%f=%s\n",v,buf);
     assert(strcmp(buf,buf2)==0);
 }
+static short fix_sign(short r)
+{
+    if(r<0) {
+        r=-r | 0x8000;
+    }
+    return r;
+}
+void test_subnormals()
+{
+    for(short i=-2047;i<2048;) {
+        for(short j=-2047;j<2048;) {
+            short si=fix_sign(i),sj=fix_sign(j);
+            float16_t a,b;
+            a.m.value = si;
+            b.m.value = sj;
+            test_op('+',a,b);
+            test_op('-',a,b);
+            if(j<-1000 || 1000<j)
+                j+=100;
+            else if(j<100 || 100<j)
+                j+=10;
+            else
+                j++;
+        }
+        if(i<-1000 || 1000<i)
+            i+=100;
+        else if(i<100 || 100<i)
+            i+=10;
+        else
+            i++;
+    }
+}
 
 int main()
 {
-    //force_equal = false;
-    //return 0;
+//    printf("Testing!\n");
+//    test(947,947);
+//    return 0;
+    printf("Subnorm!\n");
+    test_subnormals();
+    printf("Done subnorm\n");
     test0();
     test1();
     force_equal = false;
+    test(947,937);
     test(8200,8145);
     test(7915,7927);
     test(10958,466);
