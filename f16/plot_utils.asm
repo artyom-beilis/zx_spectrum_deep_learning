@@ -3,7 +3,9 @@ GLOBAL _get_addr_and_mask_e_l
 GLOBAL _inc_y_addr_and_mask
 GLOBAL _inc_x_addr_and_mask
 GLOBAL _dec_x_addr_and_mask
-GLOBAL _draw_v1
+GLOBAL _draw_line
+GLOBAL _plot
+GLOBAL _clear_screen
 ;   inp: e=y, l=x
 ;   out  hl addr e,mask
 
@@ -110,7 +112,51 @@ dx equ -2
 dy equ -3
 x_steps equ -4
 
-_draw_v1:
+_clear_screen:
+    di
+    ld hl,0
+    add hl,sp
+    ld de,0
+    ld sp,16384+6144
+    ld b,0
+cls_next:
+    push de
+    push de
+    push de
+    push de
+
+    push de
+    push de
+    push de
+    push de
+
+    push de
+    push de
+    push de
+    push de
+    djnz cls_next
+    ld sp,hl
+    ei
+    ret
+
+_plot:
+    push ix
+    ld ix,0
+    add ix,sp
+    ld a,191
+    ld e,(ix+4)
+    cp e
+    jr c,out_of_range
+    ld l,(ix+6)
+    call _get_addr_and_mask_e_l
+    ld a,e
+    or (hl)
+    ld (hl),a
+out_of_range:
+    pop ix
+    ret
+
+_draw_line:
     push ix
     ld ix,0
     add ix,sp
@@ -119,7 +165,7 @@ _draw_v1:
 
     ld a,(ix+y1)
     cp (ix+y0)
-    call nc,no_swap_x0y0_x1y1
+    jr nc,no_swap_x0y0_x1y1
    
     ld b,(ix+y1)
     ld c,(ix+y0)
@@ -175,8 +221,6 @@ x1_x0_order_ok:
     ld (inc_x_addr),hl
 dy_below_dx:
 
-normal_calc:
-
     ld a,(ix+x1)
     sub (ix+x0)
     ld (ix+dx),a   ; dx = x1 - x0
@@ -194,18 +238,18 @@ normal_calc:
     ld a,255
     adc 0
     ld b,a;             ; bc=(-dx/2+dy)
-    ld l,(ix+x0)  ; original
-    ld e,(ix+y0)  ; original
+    ld l,(ix+x0+1)  ; original
+    ld e,(ix+y0+1)  ; original
     push bc
     call _get_addr_and_mask_e_l  ; calc address
     pop bc
 while_next:
     ; mem prot
-    ld a,h
-    cp 0x40
-    jr c,done
-    cp 0x58
-    jr nc,done
+    ;ld a,h
+    ;cp 0x40
+    ;jr c,done
+    ;cp 0x58
+    ;jr nc,done
 
     ld a,e
     or (hl)
@@ -215,9 +259,8 @@ while_next:
     ld a,b
     or c
     jr z,D_is_not_pos
-    ;call virtual_inc_y_subr
-    call _inc_y_addr_and_mask
-    ld a,c
+    call virtual_inc_y_subr
+    ld a,c          ; D(bc)-= dx
     sub (ix+dx)
     ld c,a
     ld a,b
@@ -232,9 +275,8 @@ D_is_not_pos:
     adc 0
     ld b,a
     
-    ;call virtual_inc_x_subr
-    call _inc_x_addr_and_mask
-
+    call virtual_inc_x_subr
+    
     dec (ix+x_steps)
     jr nz,while_next
 
