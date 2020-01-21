@@ -21,7 +21,7 @@ _get_addr_and_mask:
 
 _inc_x_addr_and_mask:
     ld a,e
-    rlca
+    rrca
     ld e,a
     ret nc
     inc l
@@ -29,7 +29,7 @@ _inc_x_addr_and_mask:
 
 _dec_x_addr_and_mask:
     ld a,e
-    rrca
+    rlca
     ld e,a
     ret nc
     dec l
@@ -38,13 +38,14 @@ _dec_x_addr_and_mask:
 _inc_y_addr_and_mask:
     inc h
     ld a,7
-    or h
+    and h
     ret nz
     ld a,-8
     add h
     ld h,a
     ld a,0x20
     add l
+    ld l,a
     ret nc
     ld a,8
     add h
@@ -104,61 +105,151 @@ x0 equ 4
 x1 equ 6
 y0 equ 8
 y1 equ 10
+
 dx equ -2
 dy equ -3
-d_err equ -4
-x_steps equ -5
+x_steps equ -4
+
 _draw_v1:
     push ix
     ld ix,0
     add ix,sp
     push af
     push af
+
+    ld a,(ix+y1)
+    cp (ix+y0)
+    call nc,no_swap_x0y0_x1y1
+   
+    ld b,(ix+y1)
+    ld c,(ix+y0)
+    ld (ix+y1),c
+    ld (ix+y0),b
+    ld b,(ix+x1)
+    ld c,(ix+x0)
+    ld (ix+x1),c
+    ld (ix+x0),b 
+
+no_swap_x0y0_x1y1:
+    
+    ; save original values for starting point
+    ld a,(ix+x0)
+    ld (ix+x0+1),a
+    ld a,(ix+y0)
+    ld (ix+y0+1),a
+
+    ld hl,_inc_y_addr_and_mask
+    ld (inc_y_addr),hl
+    ld hl,_inc_x_addr_and_mask
+    ld (inc_x_addr),hl
+
     ld a,(ix+x1)
     sub (ix+x0)
-    ld (ix+dx),a
-    inc a
-    ld (ix+x_steps),a
+    jr nc, x1_x0_order_ok
+    ld hl,_dec_x_addr_and_mask
+    ld (inc_x_addr),hl
+    neg
+    ld c,(ix+x1)
+    ld b,(ix+x0)
+    ld (ix+x1),b
+    ld (ix+x0),c
+x1_x0_order_ok:
+    ld c,a ; save abs(dx)
     ld a,(ix+y1)
     sub (ix+y0)
-    ld (ix+dy),a
-    add a,a
-    sub a,(ix+dx)
-    ld (ix+d_err),a
-    ld l,(ix+x0)
-    ld e,(ix+y0)
-    call _get_addr_and_mask_e_l 
-    ld b,(ix+x_steps)
-    ld c,(ix+d_err)
+    cp c
+    jr c,dy_below_dx
+    ld b,(ix+x0)
+    ld c,(ix+y0)
+    ld (ix+x0),c
+    ld (ix+y0),b
+    
+    ld b,(ix+x1)
+    ld c,(ix+y1)
+    ld (ix+x1),c
+    ld (ix+y1),b
+    
+    ld hl,(inc_x_addr)
+    ld (inc_y_addr),hl
+    ld hl,_inc_y_addr_and_mask
+    ld (inc_x_addr),hl
+dy_below_dx:
+
+normal_calc:
+
+    ld a,(ix+x1)
+    sub (ix+x0)
+    ld (ix+dx),a   ; dx = x1 - x0
+    inc a
+    ld (ix+x_steps),a ; x_steps = dx+1
+    ld a,(ix+y1)    
+    sub (ix+y0)
+    ld (ix+dy),a    ; dy = y1 - y0
+    ld a,(ix+dx)
+    or a ; reset C
+    rr a                 ; a=dx/2
+    neg a   
+    add a,(ix+dy)       ; a=-dx/2+dy (low)
+    ld c,a
+    ld a,255
+    adc 0
+    ld b,a;             ; bc=(-dx/2+dy)
+    ld l,(ix+x0)  ; original
+    ld e,(ix+y0)  ; original
+    push bc
+    call _get_addr_and_mask_e_l  ; calc address
+    pop bc
 while_next:
+    ; mem prot
+    ld a,h
+    cp 0x40
+    jr c,done
+    cp 0x58
+    jr nc,done
+
     ld a,e
     or (hl)
     ld (hl),a
-    bit 7,c
-    jr D_is_not_pos
-    ld a,c
-    or a
+    bit 7,b                     ; if D(bc) > 0 (ends at D_is_not_pos)
+    jr nz,D_is_not_pos    
+    ld a,b
+    or c
     jr z,D_is_not_pos
+    ;call virtual_inc_y_subr
     call _inc_y_addr_and_mask
     ld a,c
     sub (ix+dx)
-    sub (ix+dx)
     ld c,a
-D_is_not_pos:
-    ld a,c
-    add (ix+dy)
-    add (ix+dy)
-    ld c,a
-    call _inc_x_addr_and_mask
-    djnz while_next
+    ld a,b
+    sbc 0
+    ld b,a
 
+D_is_not_pos:
+    ld a,c          ; D(bc) +=dy
+    add (ix+dy)
+    ld c,a
+    ld a,b
+    adc 0
+    ld b,a
+    
+    ;call virtual_inc_x_subr
+    call _inc_x_addr_and_mask
+
+    dec (ix+x_steps)
+    jr nz,while_next
+
+done:
     pop af
     pop af
     pop ix
     ret
 
-    
-
+virtual_inc_x_subr:
+               defb 0xC3
+inc_x_addr:    defw 0
+virtual_inc_y_subr:
+               defb 0xC3
+inc_y_addr:    defw 0
 
 
 
