@@ -243,6 +243,7 @@ dy_below_dx:
     push bc
     call _get_addr_and_mask_e_l  ; calc address
     pop bc
+    ld d,(ix+dy)    ; d=dy
 while_next:
     ; mem prot
     ;ld a,h
@@ -271,7 +272,7 @@ inc_y_addr:    defw 0
 
 D_is_not_pos:
     ld a,c          ; D(bc) +=dy
-    add (ix+dy)
+    add d
     ld c,a
     ld a,b
     adc 0
