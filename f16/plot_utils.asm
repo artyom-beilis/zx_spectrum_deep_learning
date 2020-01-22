@@ -259,7 +259,9 @@ while_next:
     ld a,b
     or c
     jr z,D_is_not_pos
-    call virtual_inc_y_subr
+               defb 0xCD
+inc_y_addr:    defw 0
+    ;call virtual_inc_y_subr
     ld a,c          ; D(bc)-= dx
     sub (ix+dx)
     ld c,a
@@ -275,7 +277,9 @@ D_is_not_pos:
     adc 0
     ld b,a
     
-    call virtual_inc_x_subr
+    ;call virtual_inc_x_subr
+               defb 0xCD
+inc_x_addr:    defw 0
     
     dec (ix+x_steps)
     jr nz,while_next
@@ -287,11 +291,7 @@ done:
     ret
 
 virtual_inc_x_subr:
-               defb 0xC3
-inc_x_addr:    defw 0
 virtual_inc_y_subr:
-               defb 0xC3
-inc_y_addr:    defw 0
 
 
 
