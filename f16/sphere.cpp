@@ -61,4 +61,9 @@ int main()
         printf("{%d,%d},\n",edges[i].first,edges[i].second);
     }
     printf("};\n");
+    printf("unsigned short sin_deg_a_div_5[]=");
+    for(int i=0;i<=90;i+=5) {
+        printf("%c%u",(i==0?'{':','),float2half(sin(i*3.14159/180)));
+    }
+    printf("};\n");
 }

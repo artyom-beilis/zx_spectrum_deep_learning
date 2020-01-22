@@ -35,13 +35,25 @@ void plot_sph()
     }
 }
 
+/*
+#include <math.h>
+void test_star()
+{
+    for(int a=0;a<360;a+=30) {
+        float ang = a*3.14159f/180;
+        int dx = 20*sin(ang);
+        int dy = 20*cos(ang);
+        from_center(dx,dy);
+    }
+}*/
+
 int main()
 {
     make_points();
     for(int j=0;j<10;j++) {
         clear_screen();
-        for(int i=0;i<100;i++)
-            plot(rand(),rand());
+        //for(int i=0;i<100;i++)
+        //    plot(rand(),rand());
         plot_sph();
     }
     return 0;
