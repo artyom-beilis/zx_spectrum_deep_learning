@@ -163,73 +163,75 @@ _draw_line:
     push af
     push af
 
-    ld a,(ix+y1)
-    cp (ix+y0)
+    ld d,(ix+x0)        ;;;;;;
+    ld e,(ix+y0)
+    ld h,(ix+x1)
+    ld l,(ix+y1)
+
+    ld a,l
+    cp e
+    jp z,horizontal_line
     jr nc,no_swap_x0y0_x1y1
-   
-    ld b,(ix+y1)
-    ld c,(ix+y0)
-    ld (ix+y1),c
-    ld (ix+y0),b
-    ld b,(ix+x1)
-    ld c,(ix+x0)
-    ld (ix+x1),c
-    ld (ix+x0),b 
+    ; swap x0<->x1, y0<->y1
+
+    ex de,hl
+    ; save original values for starting point
+    ld (ix+x0),d
+    ld (ix+y0),e
 
 no_swap_x0y0_x1y1:
     
-    ; save original values for starting point
-    ld a,(ix+x0)
-    ld (ix+x0+1),a
-    ld a,(ix+y0)
-    ld (ix+y0+1),a
+    ld bc,_inc_y_addr_and_mask
+    ld (inc_y_addr),bc
+    ld bc,_inc_x_addr_and_mask
+    ld (inc_x_addr),bc
 
-    ld hl,_inc_y_addr_and_mask
-    ld (inc_y_addr),hl
-    ld hl,_inc_x_addr_and_mask
-    ld (inc_x_addr),hl
-
-    ld a,(ix+x1)
-    sub (ix+x0)
+    ld a,h
+    sub d
+    jp z,vertical_line
     jr nc, x1_x0_order_ok
-    ld hl,_dec_x_addr_and_mask
-    ld (inc_x_addr),hl
+    ld bc,_dec_x_addr_and_mask
+    ld (inc_x_addr),bc
     neg
-    ld c,(ix+x1)
-    ld b,(ix+x0)
-    ld (ix+x1),b
-    ld (ix+x0),c
+    ; swap x0,x1 - swap both and restore
+    ex de,hl
+    ld c,l
+    ld l,e
+    ld e,c
 x1_x0_order_ok:
     ld c,a ; save abs(dx)
-    ld a,(ix+y1)
-    sub (ix+y0)
+    ld a,l
+    sub e
     cp c
     jr c,dy_below_dx
-    ld b,(ix+x0)
-    ld c,(ix+y0)
-    ld (ix+x0),c
-    ld (ix+y0),b
-    
-    ld b,(ix+x1)
-    ld c,(ix+y1)
-    ld (ix+x1),c
-    ld (ix+y1),b
-    
-    ld hl,(inc_x_addr)
-    ld (inc_y_addr),hl
-    ld hl,_inc_y_addr_and_mask
-    ld (inc_x_addr),hl
+
+    ; swap x0<->y0    
+    ld c,d
+    ld d,e
+    ld e,c
+   
+    ; swap x1<->y1
+    ld c,h
+    ld h,l
+    ld l,c 
+   
+    ld bc,(inc_x_addr)
+    ld (inc_y_addr),bc
+    ld bc,_inc_y_addr_and_mask
+    ld (inc_x_addr),bc
+
 dy_below_dx:
 
-    ld a,(ix+x1)
-    sub (ix+x0)
+    ld a,h
+    sub d
+    ld c,a          ; save dx to c as well
     ld (ix+dx),a   ; dx = x1 - x0
     inc a
     ld (ix+x_steps),a ; x_steps = dx+1
-    ld a,(ix+y1)    
-    sub (ix+y0)
+    ld a,l 
+    sub e
     ld (ix+dy),a    ; dy = y1 - y0
-    ld a,(ix+dx)
+    ld a,c   ; a=dx saved n c above
     or a ; reset C
     rr a                 ; a=dx/2
     neg a   
@@ -238,8 +240,8 @@ dy_below_dx:
     ld a,255
     adc 0
     ld b,a;             ; bc=(-dx/2+dy)
-    ld l,(ix+x0+1)  ; original
-    ld e,(ix+y0+1)  ; original
+    ld l,(ix+x0)  ; original
+    ld e,(ix+y0)  ; original
     push bc
     call _get_addr_and_mask_e_l  ; calc address
     pop bc
@@ -260,8 +262,8 @@ while_next:
     ld a,b
     or c
     jr z,D_is_not_pos
-               defb 0xCD
-inc_y_addr:    defw 0
+    defb 0xCD
+inc_y_addr: defw 0
     ;call virtual_inc_y_subr
     ld a,c          ; D(bc)-= dx
     sub (ix+dx)
@@ -279,8 +281,8 @@ D_is_not_pos:
     ld b,a
     
     ;call virtual_inc_x_subr
-               defb 0xCD
-inc_x_addr:    defw 0
+    defb 0xCD
+inc_x_addr: defw 0
     
     dec (ix+x_steps)
     jr nz,while_next
@@ -291,8 +293,55 @@ done:
     pop ix
     ret
 
-virtual_inc_x_subr:
-virtual_inc_y_subr:
+horizontal_line:
+    ld a,h
+    sub d
+    jr nc,dont_change_hline_order
+    ex de,hl
+    neg
+dont_change_hline_order:
+    inc a
+    ld (ix+x_steps),a
+    ld l,d ; l=x0
+    call _get_addr_and_mask_e_l
+    ld b,(ix+x_steps)
+    ld c,8
+next_hpoint:
+    ld a,0x80
+    xor e
+    jr nz,pixel_pixel
+    ld d,0xFF
+next_h8:
+    ld a,c
+    cp b
+    jr nc,pixel_pixel
+    ld (hl),d
+    inc hl
+    ld a,b
+    sub c
+    ld b,a
+    jr next_h8
 
+pixel_pixel:
+    ld a,(hl)
+    or e
+    ld (hl),a
+    call _inc_x_addr_and_mask
+    djnz next_hpoint
+    jr done
 
-
+vertical_line:
+    ld a,l
+    sub e
+    inc a
+    ld (ix+x_steps),a
+    ld l,d ; l=x0
+    call _get_addr_and_mask_e_l
+    ld b,(ix+x_steps)
+next_vpoint:
+    ld a,(hl)
+    or e
+    ld (hl),a
+    call _inc_y_addr_and_mask
+    djnz next_vpoint
+    jr done
