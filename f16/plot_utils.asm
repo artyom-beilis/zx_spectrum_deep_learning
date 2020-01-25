@@ -6,10 +6,24 @@ GLOBAL _dec_x_addr_and_mask
 GLOBAL _draw_line
 GLOBAL _plot
 GLOBAL _clear_screen
+GLOBAL _show_screen
+GLOBAL _screen_buffer_addr
 ;   inp: e=y, l=x
 ;   out  hl addr e,mask
 
 SECTION code_compiler
+
+
+_screen_buffer_addr: defw 0x6800
+_screen_size: defw 6144
+;_screen_buffer_addr: defw 0x4000
+
+_show_screen:
+    ld de,16384
+    ld hl,(_screen_buffer_addr)
+    ld bc,(_screen_size)
+    ldir
+    ret
 
 _get_addr_and_mask:
     push ix
@@ -86,7 +100,7 @@ _get_addr_and_mask_e_l:
     rr e
     rra 
     ld l,a ; l containss 3 middle bits of e at lsb and 5 msbs of ;
-    ld a,0x40
+    ld a,(_screen_buffer_addr+1)
     add a,h
     ld h,a  ; hl 16384 + addr
     ld e,128
@@ -113,11 +127,15 @@ dy equ -3
 x_steps equ -4
 
 _clear_screen:
-    di
     ld hl,0
     add hl,sp
+    ex de,hl
+    ld hl,6144
+    ld sp,(_screen_buffer_addr)
+    add hl,sp
+    ld sp,hl
+    ex de,hl
     ld de,0
-    ld sp,16384+6144
     ld b,0
 cls_next:
     push de
@@ -136,7 +154,6 @@ cls_next:
     push de
     djnz cls_next
     ld sp,hl
-    ei
     ret
 
 _plot:
