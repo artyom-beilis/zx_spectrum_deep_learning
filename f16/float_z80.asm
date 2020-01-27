@@ -4,6 +4,8 @@ GLOBAL _fmul_hl_de
 GLOBAL _f16_add
 GLOBAL _f16_sub
 GLOBAL _f16_mul
+GLOBAL _mpl_11_bits
+
 ; calc fp16 A-B 
 ; input A hl, B de
 ; result A-B hl
@@ -55,11 +57,14 @@ fadd_entry_after_stack_prepare:
     call check_invalid
     jp z,return_nan
     ld a,h
-    and 0x80
+    ld b,0x80 ; sign mask
+    and b
     ld (ix + sign),a  ; store sign(A)
+    ld c,a ; save sign to c
     xor d
-    and 0x80
+    and b
     ld (ix + op_sub),a   ; op_sub = sign(A) ^ sign(B)
+    ld b,a ; save sub to b
 
     res 7,h         ; we don't keep sing any more
     res 7,d         ; A=abs(A) , B=abs(B)
@@ -70,8 +75,8 @@ fadd_entry_after_stack_prepare:
     sbc d
     jr nc,no_swap
     ex de,hl        ; swap(A,B)
-    ld a,(ix+op_sub)   ; if op_sub -> sign = -sign
-    xor (ix+sign)
+    ld a,b   ; if op_sub -> sign = -sign
+    xor c
     ld (ix+sign),a
 no_swap:
     call calc_ax_bx_mantissa_on_abs
@@ -318,34 +323,56 @@ ax_is_zero:
     ret 
 
 
+_mpl_11_bits:
+    push ix
+    ld ix,0
+    add ix,sp
+ 	ld	l,(ix+4)
+	ld	h,(ix+5)
+	ld	e,(ix+6)
+    ld  d,(ix+7)
+    call mpl_11_bit
+    pop ix
+    ret
+
 mpl_11_bit:
     ld c,l
     ld b,h
-    ex de,hl
-    add hl,hl   ; make sure msb is the first relevant bit
+    xor a,a
+    bit 2,d
+	jr	nz,unroll_a
+	ld	h,a  
+	ld	l,a
+unroll_a:
     add hl,hl
+    rla
+    bit 1,d
+    jr  z,unroll_b
+	add hl,bc
+    adc 0
+unroll_b:
     add hl,hl
-    add hl,hl
-    add hl,hl
-    ex de,hl
-    ld  hl,0
-    sla	e		; optimised 1st iteration
-	rl	d
-	jr	nc,mpl_loop_start
-	ld	h,b
-	ld	l,c
-mpl_loop_start:
-	ld	a,10
-mpl_lp:
+    rla
+    bit 0,d
+    jr z,unroll_c
+    add hl,bc
+    adc 0
+unroll_c:
+
+    ld d,8
+
+mpl_loop2:
+
 	add	hl,hl  ; 
-	rl	e	   ; carry goes to de low bit
-	rl	d	   ;
-	jr	nc,mpl_end	
+    rla
+	rl e	   ; carry goes to de low bit
+	jr	nc,mpl_end2
 	add	hl,bc		    
-	jr	nc,mpl_end
-	inc	de		; ...
-mpl_end:
-    dec a
-    jr NZ,mpl_lp
+	adc 0
+mpl_end2:
+
+    dec d
+    jr NZ,mpl_loop2
+    ld e,a
     ret
 
