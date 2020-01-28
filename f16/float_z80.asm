@@ -336,43 +336,45 @@ _mpl_11_bits:
     ret
 
 mpl_11_bit:
-    ld c,l
-    ld b,h
+    ld b,d
+    ld c,e
+    ld d,h
+    ld e,l
     xor a,a
-    bit 2,d
+    bit 2,b
 	jr	nz,unroll_a
 	ld	h,a  
 	ld	l,a
 unroll_a:
     add hl,hl
     rla
-    bit 1,d
+    bit 1,b
     jr  z,unroll_b
-	add hl,bc
+	add hl,de
     adc 0
 unroll_b:
     add hl,hl
     rla
-    bit 0,d
+    bit 0,b
     jr z,unroll_c
-    add hl,bc
+    add hl,de
     adc 0
 unroll_c:
 
-    ld d,8
+    ld b,8
 
 mpl_loop2:
 
 	add	hl,hl  ; 
     rla
-	rl e	   ; carry goes to de low bit
+	rl c	   ; carry goes to de low bit
 	jr	nc,mpl_end2
-	add	hl,bc		    
+	add	hl,de
 	adc 0
 mpl_end2:
 
-    dec d
-    jr NZ,mpl_loop2
+    djnz mpl_loop2
     ld e,a
+    ld d,0
     ret
 
