@@ -1,5 +1,5 @@
-GLOBAL _fadd_hl_de
-GLOBAL _fsub_hl_de
+GLOBAL _f16_add_hl_de
+GLOBAL _f16_sub_hl_de
 GLOBAL _fmul_hl_de
 GLOBAL _f16_add
 GLOBAL _f16_sub
@@ -19,8 +19,274 @@ exp     equ -4
 
 SECTION code_compiler
 
+_f16_add:
+    pop bc
+    pop hl
+    pop de
+    push de
+    push hl
+    push bc
+_f16_add_hl_de:
+    ld a,h
+    xor d
+    and 0x80
+    jr z,fast_add_do_add
+    xor d
+    ld d,a
+    jp _f16_sub_hl_de
+fast_add_do_add:
+    ld a,0x80
+    and h
+    ex af,af' ; save sign in AF'
+    res 7,d
+    res 7,h
+    ld a,l
+    sub e
+    ld a,h
+    sbc d
+    jr nc,fast_add_noswap
+    ex de,hl
+fast_add_noswap:
+    ld c,0x7C
+    ld a,c
+    and d
+    cp c
+    jp z,handle_nan
+    ld b,a ; bx in b
+    ld a,h
+    and c
+    cp c
+    jp z,handle_nan
+    sub b
+    jr z,fast_add_diff_0
+    rra  ; carry is reset due to 
+    rra  ; low bits are zero so no problem
+    ld c,a ; c=shift
+    ld a,b ; 
+    or a 
+    jr z, fast_add_bx_is_zero
+    ld a,d
+    and 3
+    or 4
+    ld d,a
+    ld b,c
+fast_add_shift_a:
+    sra d
+    rr e
+    djnz fast_add_shift_a
+    jr fast_add_actual_add
+fast_add_bx_is_zero:
+    dec c
+    jr z,fast_add_actual_add
+    ld b,c
+fast_add_shift_b:
+    sra d
+    rr e
+    djnz fast_add_shift_b
+    jr fast_add_actual_add
+fast_add_diff_0:
+    ld a,b
+    or a
+    jr nz,fast_add_bx_not_zero_diff_zero
+    add hl,de
+    ex af,af'
+    or a,h
+    ld h,a
+    ret
+fast_add_bx_not_zero_diff_zero:
+    ld a,d
+    and 3
+    or 4
+    ld d,a
+fast_add_actual_add: 
+    ld b,h  ; save hl
+    ld c,l
+    add hl,de  ; compare (hl+de) & 0x7c00 == 0x7c00 & hl stored in bc
+    ld a,b
+    xor h
+    and 0x7C
+    jr nz,fast_add_update_exp 
+    ex af,af'
+    or a,h
+    ld h,a
+    ret
+fast_add_update_exp:
+    ld a,b
+    and 3
+    or 4
+    ld h,a
+    ld l,c
+    add hl,de
+    sra h
+    rr l
+    res 2,h
+    ld a,b
+    and 0x7C
+    add 4
+    ld b,a
+    ex af,af'
+    or b
+    or h
+    ld h,a
+    ret
+
 
 _f16_sub:
+    pop bc
+    pop hl
+    pop de
+    push de
+    push hl
+    push bc
+_f16_sub_hl_de:
+    ld a,h
+    xor d
+    and 0x80
+    jr z,fast_sub_do_sub
+    xor d
+    ld d,a
+    jp _f16_add_hl_de
+fast_sub_do_sub:
+    ld a,0x80
+    and h
+    ex af,af' ; save sign in AF'
+    res 7,d
+    and a
+    rl e
+    rl d
+    res 7,h
+    and a
+    rl l
+    rl h  ; shift both by 1 bit
+    ld a,l
+    sub e
+    ld a,h
+    sbc d
+    jr nc,fast_sub_noswap
+    ex de,hl
+    ex af,af'
+    xor 0x80
+    ex af,af'
+fast_sub_noswap:
+    ld c,0xF8
+    ld a,c
+    and d
+    cp c
+    jp z,handle_nan
+    ld b,a ; bx in b
+    ld a,h
+    and c
+    cp c
+    jr z,handle_nan
+    sub b
+    jr z,fast_sub_diff_0
+
+    rra  ; carry is reset due to 
+    rra  ; low bits are zero so no problem
+    rra 
+
+    ld c,a ; c=shift
+    ld a,b ; 
+    or a 
+    jr z, fast_sub_bx_is_zero
+    ld a,d
+    and 7
+    or 8
+    ld d,a
+    ld b,c
+fast_sub_shift_a:
+    sra d
+    rr e
+    djnz fast_sub_shift_a
+    jr fast_sub_actual_sub
+fast_sub_bx_is_zero:
+    dec c
+    jr z,fast_sub_actual_sub
+    ld b,c
+fast_sub_shift_b:
+    sra d
+    rr e
+    djnz fast_sub_shift_b
+    jr fast_sub_actual_sub
+fast_sub_diff_0:        
+    ld a,b
+    or a
+    jr nz,fast_sub_bx_not_zero_diff_zero
+    ld a,l
+    sub e
+    ld l,a
+    ld a,h
+    sbc d
+    ld h,a
+    jr fast_sub_shift_add_sign_and_ret
+fast_sub_bx_not_zero_diff_zero:
+    ld a,d
+    and 7
+    or 8
+    ld d,a
+fast_sub_actual_sub: 
+    ld b,h  ; save hl
+    ld c,l
+    ld a,l  ; sub hl,de
+    sub e
+    ld l,a
+    ld a,h
+    sbc d
+    ld h,a
+    ; compare (hl-de) & 0xf800 == 0xf800 & hl stored in bc
+    ld a,b
+    xor h
+    and 0xf8
+    jr z,fast_sub_shift_add_sign_and_ret
+    
+    ld a,b
+    and 7
+    or 8
+    ld h,a
+    ld a,c
+    sub e
+    ld l,a
+    ld a,h
+    sbc d
+    ld h,a
+    or l
+    jr z,fast_sub_shift_add_sign_and_ret
+    ld a,0xF8
+    and b
+    jr z,fast_sub_break_shift_loop
+fast_sub_shift_loop:
+    bit 3,h
+    jr nz,fast_sub_break_shift_loop
+    sub a,8
+    jr z,fast_sub_break_shift_loop
+    add hl,hl
+    jr fast_sub_shift_loop
+fast_sub_break_shift_loop:
+    res 3,h
+    or h
+    ld h,a
+fast_sub_shift_add_sign_and_ret:
+    and a ; reset C
+    rr h
+    rr l 
+    ld a,h ; check for 0 - make sure not to return -0
+    or l
+    ret z
+    ex af,af'
+    or a,h
+    ld h,a
+    ret
+
+
+
+handle_nan:
+    ld hl,0x7FFF
+    ret
+
+
+
+
+_f16_sub_prev:
     push ix
     ld ix,0
     add ix,sp
@@ -32,7 +298,18 @@ _f16_sub:
     ld d,a
     jr fadd_entry_after_stack_prepare
 
-_f16_add:
+
+
+_f16_add_pos_he_gte_de_:
+    ld a,0x7c
+    and d
+    ld b,a
+    ld a,0x7c
+    and h
+    cp b ; compare (m1*4) with (m2*4)
+    
+
+_f16_add_prev:
     push ix
     ld ix,0
     add ix,sp

@@ -85,6 +85,9 @@ int main()
         }
     }
     show_image();
-    printf("\n\nPassed %dm  \n",(int)(stop_timer()/(50*60)));
+    long passed = stop_timer();
+    int min = passed / (50*60);
+    int sec = passed % (50*60) / 50;
+    printf("\n\nPassed %d:%02d  \n",min,sec);
     return 0;
 }
