@@ -212,12 +212,7 @@ fast_sub_diff_0:
     ld a,b
     or a
     jr nz,fast_sub_bx_not_zero_diff_zero
-    ld a,l
-    sub e
-    ld l,a
-    ld a,h
-    sbc d
-    ld h,a
+    sbc hl,de
     jr fast_sub_shift_add_sign_and_ret
 fast_sub_bx_not_zero_diff_zero:
     ld a,d
@@ -227,12 +222,8 @@ fast_sub_bx_not_zero_diff_zero:
 fast_sub_actual_sub: 
     ld b,h  ; save hl
     ld c,l
-    ld a,l  ; sub hl,de
-    sub e
-    ld l,a
-    ld a,h
-    sbc d
-    ld h,a
+    and a ; reset carry
+    sbc hl,de
     ; compare (hl-de) & 0xf800 == 0xf800 & hl stored in bc
     ld a,b
     xor h
@@ -243,13 +234,8 @@ fast_sub_actual_sub:
     and 7
     or 8
     ld h,a
-    ld a,c
-    sub e
-    ld l,a
-    ld a,h
-    sbc d
-    ld h,a
-    or l
+    ld l,c
+    sbc hl,de
     jr z,fast_sub_shift_add_sign_and_ret
     ld a,0xF8
     and b
