@@ -54,9 +54,44 @@ static int fix_sign(int r)
 
 extern short f16_add2(short,short);
 extern short f16_mul2(short,short);
+extern short f16_div2(short,short);
+
+int test_div()
+{
+    for(int i=0;i<2048;i++) {
+        for(int j=1;j<=i;j++) {
+            if(i % j == 0) {
+                int v,ref;
+                v = f16_div(f16_from_int(i),f16_from_int(j));
+                ref = f16_from_int(i/j);
+                if(v!=ref) {
+                    printf("%d/%d=%d != %s (%x)\n",i,j,i/j,f16_ftos(v),v);
+                    return 1;
+                }
+                v = f16_div(f16_from_int(-i),f16_from_int(j));
+                ref = f16_from_int(-i/j);
+                if(v!=ref) {
+                    printf("%d/%d=%d != %s (%x)\n",i,j,i/j,f16_ftos(v),v);
+                    return 1;
+                }
+                // denormals
+                v = f16_div(i,f16_from_int(j));
+                ref = i/j;
+                if(v!=ref) {
+                    printf("den %d/%d=%d != %s (%x)\n",i,j,i/j,f16_ftos(v),v);
+                    return 1;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
 int main()
 {
     int i,j,v,vref;
+    if(test_div()!=0)
+        return 1;
     printf("Int  \n");
     for(i=-15;i<15;i++) {
         for(j=-15;j<15;j++) {
@@ -71,7 +106,7 @@ int main()
             if(v!=vref) {
                 printf("%d * %d -> %x != %x\n",i,j,v,vref);
                 return 1;
-            }
+            } 
         }
     }
     printf("Subnormals\n");

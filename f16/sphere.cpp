@@ -83,7 +83,7 @@ int main()
     std::map<edge,int> edge_records;
     std::vector<std::pair<int,int> > edges;
     std::vector<surf> surfs;
-    int as=30;
+    int as=60;
     int rows=180/as-1;
     int M=360/as;
     for(int r=0,ra=as;r<rows;r++,ra+=as) {

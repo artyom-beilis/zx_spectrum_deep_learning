@@ -71,7 +71,7 @@ int main()
             while(1) {
                 real_t xx=real_mul(x,x);
                 real_t yy=real_mul(y,y);
-                if(real_gt(real_add(xx,yy),limit) || it >= max_it) {
+                if(real_add(xx,yy) > limit || it >= max_it) {
                     break;
                 }
                 real_t xtemp = real_add(real_sub(xx,yy),x0);

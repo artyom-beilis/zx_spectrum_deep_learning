@@ -15,7 +15,7 @@ SECTION code_compiler
 
 
 _screen_buffer_addr: defw 0x6800
-_screen_size: defw 6144
+_screen_size: defw 4096
 ;_screen_buffer_addr: defw 0x4000
 
 _show_screen:
@@ -130,7 +130,7 @@ _clear_screen:
     ld hl,0
     add hl,sp
     ex de,hl
-    ld hl,6144
+    ld hl,(_screen_size)
     ld sp,(_screen_buffer_addr)
     add hl,sp
     ld sp,hl
@@ -138,10 +138,10 @@ _clear_screen:
     ld de,0
     ld b,0
 cls_next:
-    push de
-    push de
-    push de
-    push de
+    ;push de
+    ;push de
+    ;push de
+    ;push de
 
     push de
     push de

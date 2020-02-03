@@ -126,6 +126,8 @@ static float16_t float16_add(float16_t a,float16_t b)
         return float16_inf(sign);
     a.m.exponent = exp;
     a.m.fraction = m1 & 1023;
+    if(exp == 0 && m1 == 0)
+        sign = 0;
     a.m.sign = sign;
     return a;
 }
@@ -227,7 +229,7 @@ static float16_t float16_div(float16_t a,float16_t b)
         v<<=1;
         new_exp--;
     }
-    while(v > (2048<<DIV_SHIFT)) {
+    while(v >= (2048<<DIV_SHIFT)) {
         v>>=1;
         new_exp++;
     }

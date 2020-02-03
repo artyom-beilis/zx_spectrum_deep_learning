@@ -36,7 +36,7 @@ _div_24_by_15_ehl_by_bc:
     ld e,c
     ld d,b
     ld b,24
-next:
+div_int_next:
     
     exx 
     sla e ; Q <<= 1
@@ -50,16 +50,16 @@ next:
     
     adc hl,hl ; R=R*2 + msb(N)
     sbc hl,de ; since hl <= 65536 don't need to clear carry
-    jr nc,update_after_substr
+    jr nc,div_int_update_after_substr
     add hl,de ; fix sub
-    djnz next
-    jr done
-update_after_substr:
+    djnz div_int_next
+    jr div_int_done
+div_int_update_after_substr:
     exx    ; Q++
     inc e  
     exx
-    djnz next
-done:
+    djnz div_int_next
+div_int_done:
     ex (sp),hl ; restore hl' (speccy thing) and put reminder to the stack
     exx
     ex de,hl

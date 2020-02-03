@@ -85,13 +85,13 @@ void mul_M_b(Mat *p,real_t b[3],real_t r[3],real_t alpha,int N)
 void make_points(int a,int b)
 {
 #ifdef USE_F16    
-    short factor=real_from_int(50);
+    short factor=real_from_int(25);
     #define conv_to_screen(a) real_int(a)
 #elif defined USE_FIXED
-    short const factor=50<<7;
+    short const factor=25<<7;
     #define conv_to_screen(a) ((a)>>7) 
 #elif defined USE_FLOAT
-    float factor = 50.0f;
+    float factor = 25.0f;
     #define conv_to_screen(a) ((int)(a))
 #endif        
     
@@ -122,16 +122,17 @@ void make_points(int a,int b)
         sy=vertices[i][1];
         sz=vertices[i][2];
 
-        x=          real_mul(m3.a[0][0],sx);
+        x=           real_mul(m3.a[0][0],sx);
         x=real_add(x,real_mul(m3.a[0][1],sy));
         x=real_add(x,real_mul(m3.a[0][2],sz));
 
-        y=          real_mul(m3.a[1][0],sx);
+
+        y=           real_mul(m3.a[1][0],sx);
         y=real_add(y,real_mul(m3.a[1][1],sy));
         y=real_add(y,real_mul(m3.a[1][2],sz));
         
         points[i][0]=conv_to_screen(x) + 127;
-        points[i][1]=conv_to_screen(y) + 95;
+        points[i][1]=conv_to_screen(y) + 64;
     }
 }
 

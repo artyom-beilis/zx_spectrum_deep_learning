@@ -1,3 +1,16 @@
+#ifndef __linux
+#define f16_add f16_add2
+#define f16_sub f16_sub2
+#define f16_mul f16_mul2
+#define f16_div f16_div2
+short f16_add(short a,short b);
+short f16_sub(short a,short b);
+short f16_mul(short a,short b);
+short f16_div(short a,short b);
+
+#endif
+
+
 #include "float16.h"
 #include <stdint.h>
 #ifndef F16_NO_IO
@@ -38,14 +51,6 @@ short f16_sub(short a,short b)
 }
 */
 
-#ifndef __linux 
-#define f16_add f16_add2
-#define f16_sub f16_sub2
-#define f16_mul f16_mul2
-short f16_add(short a,short b);
-short f16_sub(short a,short b);
-
-#endif
 
 short f16_sub(short ain,short bin)
 {
@@ -146,76 +151,6 @@ short f16_add(short a,short b)
 }
 
 
-short f16_add_src(short a,short b)
-{
-    int op_add = ((a ^ b) & SIGN_MASK) == 0;
-    unsigned short sign = a & SIGN_MASK;
-    if(IS_ZERO(a)) {
-        if(IS_ZERO(b))
-            return 0;
-        return b;
-    }
-    if(IS_ZERO(b))
-        return a;
-    if(IS_INVALID(a) || IS_INVALID(b))
-        return NAN_VALUE;
-
-    if((0x7FFF & a) < (0x7FFF & b)) {
-        short x=a;
-        a=b;
-        b=x;
-        if(!op_add)
-            sign ^= SIGN_MASK;
-    }
-    unsigned short m1 = MANTISSA(a);
-    unsigned short m2 = MANTISSA(b);
-    int ax = EXPONENT(a);
-    int bx = EXPONENT(b);
-    int exp = ax;
-
-    ax += (ax==0);
-    bx += (bx==0);
-
-    unsigned short diff = ax - bx;
-
-    if(op_add) {
-        if(diff > 0) {
-            m2>>=diff;
-        }
-        m1 += m2;
-        if(m1 & 2048) {
-            m1 >>= 1;
-            exp++;
-        }
-        if(exp == 0 && (m1 & 1024))
-            exp=1;
-    }
-    else {
-#define DIFF_SHIFT 1
-        m1<<=DIFF_SHIFT;
-        m2<<=DIFF_SHIFT;
-        if(diff > 0) {
-            m2>>=diff;
-        }
-        m1 -= m2;
-        while(exp > 0 && !(m1 & (1024<<DIFF_SHIFT))) { // for shift 3
-            exp--;
-            if(exp!=0)
-                m1<<=1;
-        }
-        m1>>=DIFF_SHIFT;
-    }
-    if(exp >= 31)
-        return SIGNED_INF_VALUE(sign);
-    
-    a = sign | (exp << 10) | (m1 & 1023);
-    return a;
-}
-short f16_sub_src(short a,short b)
-{
-    return f16_add_src(a,b^SIGN_MASK);
-}
-
 short f16_mul(short a,short b)
 {
     int sign = (a ^ b) & SIGN_MASK;
@@ -292,7 +227,7 @@ short f16_div(short a,short b)
         v<<=1;
         new_exp--;
     }
-    while(v > (2048<<DIV_SHIFT)) {
+    while(v >= (2048<<DIV_SHIFT)) {
         v>>=1;
         new_exp++;
     }
@@ -431,14 +366,14 @@ char *f16_ftosp(char *p,int size,short a,int prec)
     v = f16_int(a);
     sprintf(buf,"%d",v);
     add_str(buf);
-    a=f16_sub_src(a,f16_from_int(v));
+    a=f16_sub(a,f16_from_int(v));
     if(a == 0 || prec==0)
         goto done;
     add_char('.');
     for(int i=0;i<prec && a != 0;i++) {
         a=f16_mul(a,f16_10);
         v=f16_int(a);
-        a=f16_sub_src(a,f16_from_int(v));
+        a=f16_sub(a,f16_from_int(v));
         add_char(v+'0');
     }
 done:
