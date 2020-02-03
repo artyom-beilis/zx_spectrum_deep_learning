@@ -4,6 +4,7 @@ GLOBAL _fmul_hl_de
 GLOBAL _f16_add
 GLOBAL _f16_sub
 GLOBAL _f16_mul
+GLOBAL _f16_div
 GLOBAL _mpl_11_bits
 
 ; calc fp16 A-B 
@@ -278,11 +279,7 @@ _f16_mul:
     push hl
     push bc
 _fmul_hl_de:
-    ld a,h
-    xor d
-    and 0x80
-    ex af,af'
-    call calc_ax_bx_mantissa
+    call calc_ax_bx_mantissa_and_sign
     jr z,handle_nan
     add b   ; new_exp = ax + bx - 15
     sub 15
@@ -378,8 +375,13 @@ final_combine:
     ;   de = mantissa(de)
     ;   z flag one of the numbers is inf/nan
     ;   no calcs done
+    ;   a' sign = sign(hl)^sign(de)
 
-
+calc_ax_bx_mantissa_and_sign:
+    ld a,h
+    xor d
+    and 0x80
+    ex af,af'
 calc_ax_bx_mantissa:
     res 7,h
     res 7,d
@@ -477,3 +479,186 @@ mpl_end2:
     ld d,0
     ret
 
+
+
+_f16_div:
+    pop bc
+    pop hl
+    pop de
+    push de
+    push hl
+    push bc
+_fdiv_hl_de:
+    call calc_ax_bx_mantissa_and_sign
+    jp z,handle_nan
+    sub b   ; new_exp = ax + bx - 15
+    add 15
+    ld b,a
+    ld a,d
+    or e
+    jp z,handle_nan
+    ld a,h
+    or l
+    ret z
+    push bc
+    ld b,d ;  save divider to bc
+    ld c,e
+
+    ex de,hl
+    ld hl,0
+
+    sra d
+    rr e
+    rr h
+    
+    sra d
+    rr e
+    rr h
+    
+    sra d
+    rr e
+    rr h
+
+    sra b
+    rr c
+    
+    rra ; save last bit of bc to ad
+    push af
+    add hl,bc  
+    ld a,e
+    adc 0
+    ld e,a
+    pop af
+    rla
+    rl c
+    rl b ; restore this bit
+
+    call _div_24_by_15_ehl_by_bc
+    pop bc ; b now has exp
+    ld a,e
+    or h
+    or l
+    ret z ; 
+
+div_loop_small:
+    ld a,0xE0
+    and h
+    or e
+    jr nz,div_loop_big  ; v<8192
+    or b
+    jr z,div_loop_big
+    bit 7,b
+    jr nz,div_loop_big
+div_loop_small_next:
+    add hl,hl
+    dec b
+    jr z,div_loop_big
+    bit 5,h
+    jr z,div_loop_small_next
+div_loop_big:
+    ld a,0xC0
+    and h
+    or e
+    jr z,div_check_neg_or_zero_exp
+    inc b
+    sra e
+    rr h
+    rr l
+    jr div_loop_big
+div_check_neg_or_zero_exp:
+    ld a,b
+    dec a
+    bit 7,a
+    jr z,div_exp_positive
+    ld a,1
+    sub b
+    ld b,0
+    jr z,div_exp_positive
+    ld b,a
+div_denorm_shift:
+    sra h
+    rr l
+    djnz div_denorm_shift
+div_exp_positive:
+    ld a,30
+    cp b
+    jp c,handle_nan
+    sra h
+    rr l
+    sra h
+    rr l
+    sra h
+    rr l
+    res 2,h
+    ld a,b
+    add a,a
+    add a,a
+    or h
+    ld h,a
+    ex af,af'
+    or h
+    ld h,a
+    ret
+    
+
+
+
+
+
+
+_div_24_by_15:
+    push ix
+    ld ix,0
+    add ix,sp
+    ld l,(ix+4)
+    ld h,(ix+5)
+    ld e,(ix+6)
+
+    ld c,(ix+8)
+    ld b,(ix+9)
+    pop ix
+
+_div_24_by_15_ehl_by_bc:
+    push hl
+    ld a,e
+    exx 
+    ld c,a
+    ex (sp),hl  ; chl = N ; save hl' on stack
+    ld de,0
+    ld b,d      ; bde = Q = 0
+    exx
+    ld hl,0
+    ld e,c
+    ld d,b
+    ld b,24
+div_int_next:
+    
+    exx 
+    sla e ; Q <<= 1
+    rl d
+    rl b
+    
+    sla l  ; N<<=1
+    rl h 
+    rl c
+    exx
+    
+    adc hl,hl ; R=R*2 + msb(N)
+    sbc hl,de ; since hl <= 65536 don't need to clear carry
+    jr nc,div_int_update_after_substr
+    add hl,de ; fix sub
+    djnz div_int_next
+    jr div_int_done
+div_int_update_after_substr:
+    exx    ; Q++
+    inc e  
+    exx
+    djnz div_int_next
+div_int_done:
+    ex (sp),hl ; restore hl' (speccy thing) and put reminder to the stack
+    exx
+    ex de,hl
+    ld e,b
+    ld d,0
+    pop bc ; get  reminder
+    ret 
