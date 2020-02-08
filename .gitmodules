@@ -1,0 +1,3 @@
+[submodule "float16"]
+	path = float16
+	url = https://github.com/artyom-beilis/float16.git

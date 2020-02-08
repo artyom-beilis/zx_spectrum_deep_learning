@@ -485,11 +485,11 @@ int main()
     make_screen(train_samples,"train_screen_header.tap","train_screen_body.tap");
     for(int e=0;e<EPOCHS;e++) {
         f16_t acc = train(e);
-        printf("Epoch %d acc=%s\n",e,f16_ftos(f16_mul(acc,f16_from_int(100))));
+        printf("Epoch %d acc=%d\n",e,f16_int(f16_mul(acc,f16_from_int(100))));
     }
     make_screen(test_samples,"test_screen_header.tap","test_screen_body.tap");
     f16_t acc = test();
-    printf("Test acc=%s\n",f16_ftos(f16_mul(acc,f16_from_int(100))));
+    printf("Test acc=%d\n",f16_int(f16_mul(acc,f16_from_int(100))));
     return 0;
 }
 #else
