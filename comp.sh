@@ -21,7 +21,8 @@ appmake +zx -b $ZXTEMP/train_CODE.bin -o code.tap --blockname dl --org 25600 --n
 zcc +zx -vn -O3 -zorg=25600 -startup=0 -clib=sdcc_iy train_f16.c -lm -o $ZXTEMP/train_16 || exit 1
 appmake +zx -b $ZXTEMP/train_16_CODE.bin -o code_16.tap --blockname dl --org 25600 --noloader || exit 1
 
-zcc +zx -vn -O3 -g -zorg=25600 -startup=31 -clib=sdcc_iy -Ifloat16/include float16/z80/float_z80.asm train_float16.c  -lm -o $ZXTEMP/train_half || exit 1
+zcc +zx -vn -O3 -g -zorg=25600 -startup=0 -clib=sdcc_iy -Ifloat16/include float16/z80/float_z80.asm train_float16.c  -lm -o $ZXTEMP/train_half || exit 1
+#zcc +zx -vn -O3 -g -zorg=25600 -startup=0 -clib=sdcc_iy -I.  -I../mntest/mnist/f16 ../mntest/mnist/f16/float_z80.asm ../mntest/mnist/f16/float16.c train_float16.c  -lm -o $ZXTEMP/train_half || exit 1
 appmake +zx -b $ZXTEMP/train_half_CODE.bin -o code_half.tap --blockname dl --org 25600 --noloader || exit 1 
 
 

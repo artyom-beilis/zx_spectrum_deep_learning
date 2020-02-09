@@ -11,6 +11,7 @@ const int train_samples_size=64;
 
 #include "float16.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include "config.h"
 #define INTERM_SIZE (INPSIZE - KSIZE + 1)
 #define POOL_SIZE (INTERM_SIZE  >> 1)
@@ -284,11 +285,12 @@ unsigned short randv()
 f16_t gauus()
 {
     unsigned res = 0;
-    int i;
-    f16_t factor = f16_div(f16_one,f16_from_int(4096));
+    short i;
+    const f16_t factor = 3072; // 1/4096 f16_div(f16_one,f16_from_int(4096));
     for(i=0;i<12;i++)
         res += randv() >> 5;
-    return f16_sub(f16_mul(factor,f16_from_int(res)),f16_from_int(3));
+    short resf = f16_from_int(res);
+    return f16_sub(f16_mul(factor,resf),0x4200); //0x4200 = 3
 }
 
 void xavier(f16_t *v,int size,int Nin,int Nout)
